@@ -10,320 +10,237 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   :root {
-    --bg:          #111c1d;
-    --teal-dark:   #2a5c5e;
-    --teal:        #3d8a8c;
-    --teal-light:  #7bbcbe;
-    --mauve:       #9a6fa0;
-    --mauve-light: #c4a0cc;
-    --yellow:      #d4b84a;
-    --yellow-light:#ede09a;
-    --green:       #4a7a5a;
-    --cream:       #f0ede8;
-    --deep:        #111c1d;
-    --text:        #2a3a3a;
-    --mid-text:    #4a6464;
-    --card-dark:   rgba(255,255,255,0.04);
-    --card-border: rgba(255,255,255,0.08);
+    --bg:         #111c1d;
+    --teal:       #3d8a8c;
+    --teal-light: #7bbcbe;
+    --mauve:      #9a6fa0;
+    --mauve-l:    #c4a0cc;
+    --yellow:     #d4b84a;
+    --yellow-l:   #ede09a;
   }
 
   html { scroll-behavior: smooth; }
+
   body {
     font-family: 'Nunito', sans-serif;
     background: var(--bg);
-    color: #e0e8e8;
+    color: rgba(255,255,255,0.75);
     overflow-x: hidden;
   }
 
-  /* ── GRAIN ── */
+  /* grain */
   body::before {
-    content: '';
-    position: fixed; inset: 0; z-index: 1000;
-    pointer-events: none;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
-    background-size: 200px 200px;
-    opacity: 0.035;
-    mix-blend-mode: overlay;
+    content:''; position:fixed; inset:0; z-index:1000; pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:200px; opacity:0.035; mix-blend-mode:overlay;
   }
 
   /* ── NAV ── */
   nav {
-    position: fixed; top: 0; width: 100%; z-index: 200;
-    background: rgba(17,28,29,0.85);
-    backdrop-filter: blur(16px);
-    border-bottom: 1px solid rgba(123,188,190,0.1);
-    padding: 1rem 3rem;
-    display: flex; justify-content: space-between; align-items: center;
+    position:fixed; top:0; width:100%; z-index:200;
+    padding:1.2rem 2.5rem;
+    display:flex; justify-content:space-between; align-items:center;
+    mix-blend-mode: normal;
   }
   .logo {
-    font-family: 'Bricolage Grotesque', sans-serif;
-    font-size: 1.1rem; font-weight: 700;
-    color: var(--teal-light); letter-spacing: 0.08em;
+    font-family:'Bricolage Grotesque',sans-serif;
+    font-size:1rem; font-weight:700;
+    color:var(--teal-light); letter-spacing:0.1em;
   }
-  nav ul { list-style: none; display: flex; gap: 2.5rem; }
+  nav ul { list-style:none; display:flex; gap:2rem; }
   nav ul a {
-    text-decoration: none; color: rgba(255,255,255,0.45);
-    font-size: 0.8rem; letter-spacing: 0.14em; text-transform: uppercase;
-    font-weight: 700; transition: color 0.2s;
+    text-decoration:none; color:rgba(255,255,255,0.35);
+    font-size:0.72rem; letter-spacing:0.16em; text-transform:uppercase; font-weight:700;
+    transition:color 0.2s;
   }
-  nav ul a:hover { color: var(--yellow-light); }
+  nav ul a:hover { color:var(--yellow-l); }
 
   /* ── HERO ── */
   #hero {
-    position: relative; min-height: 100vh;
-    background: var(--bg);
-    display: flex; align-items: center; justify-content: center;
-    text-align: center; overflow: hidden;
+    position:relative; min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    text-align:center; overflow:hidden; background:var(--bg);
   }
   .blob {
-    position: absolute; border-radius: 50%;
-    filter: blur(70px); opacity: 0;
-    animation: blobIn 2.2s ease-out forwards;
+    position:absolute; border-radius:50%;
+    filter:blur(70px); opacity:0;
+    animation:blobIn 2.2s ease-out forwards;
   }
-  .blob-1 { width:560px;height:560px; background:radial-gradient(circle at 40% 40%,#5bbcbe,#2a6a7a,transparent 70%); top:-100px;left:-120px; animation-delay:.1s; }
-  .blob-2 { width:400px;height:400px; background:radial-gradient(circle at 50% 50%,#b080c0,#6a3a7a,transparent 70%); bottom:-80px;right:-80px; animation-delay:.4s; }
-  .blob-3 { width:300px;height:300px; background:radial-gradient(circle at 50% 40%,#d4b84a,#8a7020,transparent 70%); bottom:12%;left:14%; animation-delay:.7s; }
-  .blob-4 { width:240px;height:240px; background:radial-gradient(circle at 50% 50%,#7bbcbe,#2a5c5e,transparent 70%); top:22%;right:10%; animation-delay:.5s; }
-  .blob-5 { width:180px;height:180px; background:radial-gradient(circle at 50% 50%,#c4a0cc,#7a4a8a,transparent 70%); top:55%;left:42%; animation-delay:.9s; }
-  .blob-6 { width:320px;height:320px; background:radial-gradient(circle at 60% 40%,#4a8a6a,#2a5a3a,transparent 70%); top:5%;right:28%; animation-delay:.3s; }
+  .blob-1{width:560px;height:560px;background:radial-gradient(circle at 40% 40%,#5bbcbe,#2a6a7a,transparent 70%);top:-100px;left:-120px;animation-delay:.1s}
+  .blob-2{width:400px;height:400px;background:radial-gradient(circle at 50% 50%,#b080c0,#6a3a7a,transparent 70%);bottom:-80px;right:-80px;animation-delay:.4s}
+  .blob-3{width:300px;height:300px;background:radial-gradient(circle at 50% 40%,#d4b84a,#8a7020,transparent 70%);bottom:12%;left:14%;animation-delay:.7s}
+  .blob-4{width:240px;height:240px;background:radial-gradient(circle at 50% 50%,#7bbcbe,#2a5c5e,transparent 70%);top:22%;right:10%;animation-delay:.5s}
+  .blob-5{width:180px;height:180px;background:radial-gradient(circle at 50% 50%,#c4a0cc,#7a4a8a,transparent 70%);top:55%;left:42%;animation-delay:.9s}
+  .blob-6{width:320px;height:320px;background:radial-gradient(circle at 60% 40%,#4a8a6a,#2a5a3a,transparent 70%);top:5%;right:28%;animation-delay:.3s}
 
-  @keyframes blobIn { from{opacity:0;transform:scale(0.85) translateY(20px)} to{opacity:1;transform:scale(1) translateY(0)} }
-  .blob-1 { animation: blobIn 2.2s ease-out .1s forwards, drift1 18s ease-in-out 2.3s infinite; }
-  .blob-2 { animation: blobIn 2.2s ease-out .4s forwards, drift2 22s ease-in-out 2.6s infinite; }
-  .blob-3 { animation: blobIn 2.2s ease-out .7s forwards, drift3 20s ease-in-out 2.9s infinite; }
-  .blob-4 { animation: blobIn 2.2s ease-out .5s forwards, drift2 25s ease-in-out 2.7s infinite; }
-  .blob-5 { animation: blobIn 2.2s ease-out .9s forwards, drift1 17s ease-in-out 3.1s infinite; }
-  .blob-6 { animation: blobIn 2.2s ease-out .3s forwards, drift3 23s ease-in-out 2.5s infinite; }
-  @keyframes drift1 { 0%,100%{transform:translate(0,0)} 33%{transform:translate(18px,-22px)} 66%{transform:translate(-12px,14px)} }
-  @keyframes drift2 { 0%,100%{transform:translate(0,0)} 33%{transform:translate(-20px,16px)} 66%{transform:translate(14px,-10px)} }
-  @keyframes drift3 { 0%,100%{transform:translate(0,0)} 33%{transform:translate(10px,20px)} 66%{transform:translate(-16px,-18px)} }
+  @keyframes blobIn{from{opacity:0;transform:scale(0.85) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  .blob-1{animation:blobIn 2.2s ease-out .1s forwards,drift1 18s ease-in-out 2.3s infinite}
+  .blob-2{animation:blobIn 2.2s ease-out .4s forwards,drift2 22s ease-in-out 2.6s infinite}
+  .blob-3{animation:blobIn 2.2s ease-out .7s forwards,drift3 20s ease-in-out 2.9s infinite}
+  .blob-4{animation:blobIn 2.2s ease-out .5s forwards,drift2 25s ease-in-out 2.7s infinite}
+  .blob-5{animation:blobIn 2.2s ease-out .9s forwards,drift1 17s ease-in-out 3.1s infinite}
+  .blob-6{animation:blobIn 2.2s ease-out .3s forwards,drift3 23s ease-in-out 2.5s infinite}
+  @keyframes drift1{0%,100%{transform:translate(0,0)}33%{transform:translate(18px,-22px)}66%{transform:translate(-12px,14px)}}
+  @keyframes drift2{0%,100%{transform:translate(0,0)}33%{transform:translate(-20px,16px)}66%{transform:translate(14px,-10px)}}
+  @keyframes drift3{0%,100%{transform:translate(0,0)}33%{transform:translate(10px,20px)}66%{transform:translate(-16px,-18px)}}
 
   .hero-content {
-    position: relative; z-index: 10;
-    opacity: 0; animation: fadeUp 1s ease-out 1.8s forwards;
+    position:relative; z-index:10;
+    opacity:0; animation:fadeUp 1s ease-out 1.8s forwards;
   }
-  @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 
   .hero-content img {
-    width: 140px; height: 140px; border-radius: 50%; object-fit: cover;
-    margin-bottom: 2rem;
-    box-shadow: 0 0 80px rgba(123,188,190,0.25), 0 0 140px rgba(176,138,170,0.1);
+    width:130px; height:130px; border-radius:50%; object-fit:cover;
+    margin-bottom:2rem;
+    box-shadow:0 0 80px rgba(123,188,190,0.2),0 0 140px rgba(176,138,170,0.1);
   }
   .hero-eyebrow {
-    font-size: 0.78rem; letter-spacing: 0.28em; text-transform: uppercase;
-    color: var(--yellow); margin-bottom: 1.2rem; font-weight: 700;
+    font-size:0.72rem; letter-spacing:0.28em; text-transform:uppercase;
+    color:var(--yellow); margin-bottom:1.2rem; font-weight:600;
   }
   h1 {
-    font-family: 'Bricolage Grotesque', sans-serif;
-    font-size: clamp(4rem, 12vw, 9rem);
-    font-weight: 800;
-    line-height: 0.95; margin-bottom: 1.5rem;
-    background: linear-gradient(135deg, #fff 0%, var(--teal-light) 40%, var(--mauve-light) 70%, var(--yellow) 100%);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-family:'Bricolage Grotesque',sans-serif;
+    font-size:clamp(4.5rem,13vw,10rem);
+    font-weight:800; line-height:0.92; margin-bottom:1.8rem;
+    background:linear-gradient(135deg,#fff 0%,var(--teal-light) 40%,var(--mauve-l) 70%,var(--yellow) 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
   }
   .hero-sub {
-    color: rgba(255,255,255,0.45); font-size: 1.05rem; font-weight: 300;
-    max-width: 400px; margin: 0 auto 2.5rem; line-height: 1.75;
+    color:rgba(255,255,255,0.38); font-size:0.95rem; font-weight:300;
+    max-width:340px; margin:0 auto 2.8rem; line-height:1.8;
   }
   .btn {
-    display: inline-block; padding: 0.85rem 2.2rem;
-    font-family: 'Nunito', sans-serif; font-size: 0.82rem; font-weight: 700;
-    letter-spacing: 0.15em; text-transform: uppercase;
-    text-decoration: none; border-radius: 2px; transition: all 0.22s;
+    display:inline-block; padding:0.8rem 2rem;
+    font-family:'Nunito',sans-serif; font-size:0.78rem; font-weight:700;
+    letter-spacing:0.16em; text-transform:uppercase;
+    text-decoration:none; border-radius:2px; transition:all 0.22s;
   }
-  .btn-primary { background: var(--yellow); color: var(--deep); }
-  .btn-primary:hover { background: var(--yellow-light); transform: translateY(-2px); }
-  .btn-outline {
-    background: transparent; border: 1.5px solid rgba(123,188,190,0.4);
-    color: var(--teal-light); margin-left: 1rem;
-  }
-  .btn-outline:hover { background: rgba(123,188,190,0.08); transform: translateY(-2px); }
-  .scroll-hint {
-    position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
-    color: rgba(255,255,255,0.2); font-size: 0.7rem; letter-spacing: 0.25em;
-    text-transform: uppercase; z-index: 10;
-    opacity: 0; animation: fadeUp 1s ease-out 2.5s forwards;
-  }
+  .btn-primary{background:var(--yellow);color:#111c1d}
+  .btn-primary:hover{background:var(--yellow-l);transform:translateY(-2px)}
+  .btn-outline{background:transparent;border:1px solid rgba(123,188,190,0.35);color:var(--teal-light);margin-left:1rem}
+  .btn-outline:hover{background:rgba(123,188,190,0.07);transform:translateY(-2px)}
+  .scroll-hint{position:absolute;bottom:2rem;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.18);font-size:0.68rem;letter-spacing:0.25em;text-transform:uppercase;z-index:10;opacity:0;animation:fadeUp 1s ease-out 2.5s forwards}
 
-  /* ── PHOTO INTERLUDE ── */
-  #photo-interlude {
-    position: relative; width: 100%; height: 100vh;
-    max-height: 100vh; overflow: hidden;
-  }
-  #photo-interlude img {
-    position: absolute; top: 0; left: 0;
-    width: 100%; height: 120%;
-    object-fit: cover; object-position: center;
-    transition: opacity 0.15s ease-out;
-  }
-  .photo-credit {
-    position: absolute;
-    bottom: calc(35% + 0.8rem); right: 1.5rem;
-    color: rgba(255,255,255,0.6); font-size: 0.75rem;
-    letter-spacing: 0.12em; font-family: 'Nunito', sans-serif;
-    text-shadow: 0 1px 6px rgba(0,0,0,0.5); z-index: 1;
-  }
-  .photo-fade {
-    position: absolute; bottom: 0; left: 0; right: 0;
-    height: 35%;
-    background: linear-gradient(to bottom, transparent, var(--bg));
-  }
+  /* ── PHOTO ── */
+  #photo-interlude{position:relative;width:100%;height:100vh;max-height:100vh;overflow:hidden}
+  #photo-interlude img{position:absolute;top:0;left:0;width:100%;height:120%;object-fit:cover;object-position:center;transition:opacity 0.15s ease-out}
+  .photo-credit{position:absolute;bottom:calc(35% + 0.8rem);right:1.5rem;color:rgba(255,255,255,0.55);font-size:0.72rem;letter-spacing:0.12em;font-family:'Nunito',sans-serif;text-shadow:0 1px 8px rgba(0,0,0,0.7);z-index:1}
+  .photo-fade{position:absolute;bottom:0;left:0;right:0;height:40%;background:linear-gradient(to bottom,transparent,var(--bg))}
 
-  /* ── SHARED SECTIONS ── */
-  section { padding: 7rem 2rem; }
-  .container { max-width: 1100px; margin: 0 auto; }
-  .section-label {
-    font-size: 0.72rem; letter-spacing: 0.32em; text-transform: uppercase;
-    color: var(--teal); font-weight: 700; margin-bottom: 0.75rem;
+  /* ── DIVIDER ── */
+  .divider{
+    width:100%; height:8px; border:none; margin-bottom:3rem;
+    background:radial-gradient(ellipse at center,var(--mauve) 0%,transparent 100%);
+    mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 8' preserveAspectRatio='none'%3E%3Cpath d='M0,4 C12,0 25,8 37,4 C50,0 62,8 75,4 C87,0 100,8 100,4' stroke='black' stroke-width='4.5' fill='none'/%3E%3C/svg%3E");
+    -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 8' preserveAspectRatio='none'%3E%3Cpath d='M0,4 C12,0 25,8 37,4 C50,0 62,8 75,4 C87,0 100,8 100,4' stroke='black' stroke-width='4.5' fill='none'/%3E%3C/svg%3E");
+    mask-size:200% 100%; -webkit-mask-size:200% 100%;
+    animation:wiggle 7s ease-in-out infinite;
   }
-  .section-title {
-    font-family: 'Bricolage Grotesque', sans-serif;
-    font-size: clamp(2.2rem, 5vw, 3.5rem); font-weight: 800;
-    margin-bottom: 1.5rem; line-height: 1.1;
-  }
-  .divider {
-    margin-bottom: 2.5rem; width: 100%; height: 8px; border: none;
-    background: radial-gradient(ellipse at center, var(--mauve) 0%, transparent 100%);
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 8' preserveAspectRatio='none'%3E%3Cpath d='M0,4 C12,0 25,8 37,4 C50,0 62,8 75,4 C87,0 100,8 100,4' stroke='black' stroke-width='4.5' fill='none'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 8' preserveAspectRatio='none'%3E%3Cpath d='M0,4 C12,0 25,8 37,4 C50,0 62,8 75,4 C87,0 100,8 100,4' stroke='black' stroke-width='4.5' fill='none'/%3E%3C/svg%3E");
-    mask-size: 200% 100%; -webkit-mask-size: 200% 100%;
-    animation: wiggle 7s ease-in-out infinite;
-  }
-  @keyframes wiggle {
-    0%,100% { mask-position:0% 0%; -webkit-mask-position:0% 0%; }
-    50%      { mask-position:50% 0%; -webkit-mask-position:50% 0%; }
-  }
+  @keyframes wiggle{0%,100%{mask-position:0% 0%;-webkit-mask-position:0% 0%}50%{mask-position:50% 0%;-webkit-mask-position:50% 0%}}
 
-  /* scroll-reveal */
-  .reveal {
-    opacity: 0; transform: translateY(36px);
-    transition: opacity 0.7s ease, transform 0.7s ease;
-  }
-  .reveal.visible { opacity: 1; transform: translateY(0); }
+  /* reveal */
+  .reveal{opacity:0;transform:translateY(32px);transition:opacity 0.75s ease,transform 0.75s ease}
+  .reveal.visible{opacity:1;transform:translateY(0)}
 
   /* ── ABOUT ── */
-  #about { background: var(--bg); }
-  #about .section-title { color: #fff; }
-  .about-text p { color: rgba(255,255,255,0.55); line-height: 1.9; font-size: 1.05rem; margin-bottom: 1rem; }
+  #about{padding:10rem 2.5rem}
+  .about-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 2fr;gap:4rem;align-items:end}
+  .about-label-col{padding-bottom:0.5rem}
+  .section-label{font-size:0.68rem;letter-spacing:0.32em;text-transform:uppercase;color:var(--teal);font-weight:700;margin-bottom:0.6rem}
+  .about-big{
+    font-family:'Bricolage Grotesque',sans-serif;
+    font-size:clamp(2.8rem,6vw,5rem); font-weight:800; line-height:1.0;
+    color:#fff; margin-bottom:0;
+  }
+  .about-body{padding-top:1rem}
+  .about-body p{font-size:1.1rem;line-height:1.9;color:rgba(255,255,255,0.45);margin-bottom:1.2rem;max-width:520px}
+  .about-body p:first-child{font-size:1.3rem;color:rgba(255,255,255,0.65);line-height:1.75}
 
   /* ── EVENTS ── */
-  #events { background: #0d1718; }
-  #events .section-title { color: #fff; }
-  .events-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
-  .event-card {
-    background: var(--card-dark);
-    border: 1px solid var(--card-border);
-    backdrop-filter: blur(12px);
-    border-radius: 8px; padding: 2rem;
-    border-left: 3px solid var(--teal);
-    transition: transform .25s, box-shadow .25s, background .25s;
+  #events{padding:8rem 2.5rem}
+  .events-header{max-width:1200px;margin:0 auto 5rem;display:flex;justify-content:space-between;align-items:flex-end}
+  .events-header-left h2{
+    font-family:'Bricolage Grotesque',sans-serif;
+    font-size:clamp(3rem,7vw,6rem); font-weight:800; line-height:0.95; color:#fff;
   }
-  .event-card:hover {
-    transform: translateY(-4px);
-    background: rgba(255,255,255,0.07);
-    box-shadow: 0 16px 40px rgba(0,0,0,0.3);
-  }
-  .event-date { font-size: .85rem; color: var(--teal-light); margin-bottom: .5rem; letter-spacing: .05em; }
-  .event-title { font-family: 'Bricolage Grotesque', sans-serif; font-size: 1.3rem; color: #fff; margin-bottom: .5rem; font-weight: 700; }
-  .event-detail { color: rgba(255,255,255,0.45); font-size: .9rem; line-height: 1.6; }
-  .event-tag { display:inline-block; margin-top:1rem; padding:.25rem .8rem; background:rgba(123,188,190,0.1); border:1px solid rgba(123,188,190,0.2); border-radius:20px; font-size:.72rem; color:var(--teal-light); letter-spacing:.1em; text-transform:uppercase; }
+  .events-header-right{font-size:0.8rem;color:rgba(255,255,255,0.3);letter-spacing:0.1em;text-align:right;padding-bottom:0.5rem}
+
+  /* poster layout */
+  .events-poster{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1.6fr 1fr;grid-template-rows:auto auto;gap:1.5rem}
+  .event-item{padding:2.5rem;border-top:1px solid rgba(255,255,255,0.08);position:relative;transition:border-color 0.3s}
+  .event-item:hover{border-color:rgba(123,188,190,0.4)}
+  .event-item.featured{grid-row:span 2;border:1px solid rgba(255,255,255,0.06);border-radius:4px;background:rgba(255,255,255,0.025);backdrop-filter:blur(10px);display:flex;flex-direction:column;justify-content:flex-end}
+  .event-num{font-size:4.5rem;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:rgba(255,255,255,0.06);line-height:1;margin-bottom:auto}
+  .event-item.featured .event-num{font-size:7rem}
+  .ev-date{font-size:0.72rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--teal-light);margin-bottom:0.6rem}
+  .ev-title{font-family:'Bricolage Grotesque',sans-serif;font-size:1.5rem;font-weight:700;color:#fff;line-height:1.2;margin-bottom:0.6rem}
+  .event-item.featured .ev-title{font-size:2rem}
+  .ev-detail{font-size:0.85rem;color:rgba(255,255,255,0.38);line-height:1.6}
+  .ev-tag{display:inline-block;margin-top:1.2rem;padding:0.2rem 0.7rem;border:1px solid rgba(123,188,190,0.25);border-radius:20px;font-size:0.68rem;color:var(--teal-light);letter-spacing:0.1em;text-transform:uppercase}
 
   /* ── JOIN ── */
-  #join { background: var(--bg); }
-  #join .section-title { color: #fff; }
-  .join-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: start; }
-  .join-info p { color: rgba(255,255,255,0.5); line-height: 1.85; margin-bottom: 1.5rem; }
-  .voice-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem; }
-  .voice-part {
-    padding: 1rem 1.25rem;
-    background: var(--card-dark); border: 1px solid var(--card-border);
-    border-radius: 6px; font-size: .9rem; color: var(--teal-light); font-weight: 700; letter-spacing: .05em;
-  }
-  .join-form {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    backdrop-filter: blur(20px);
-    padding: 2.5rem; border-radius: 12px;
-  }
-  .join-form h3 { font-family: 'Bricolage Grotesque', sans-serif; color: #fff; font-size: 1.4rem; margin-bottom: 1.5rem; font-weight: 700; }
-  .form-group { margin-bottom: 1.2rem; }
-  .form-group label { display: block; color: rgba(255,255,255,0.4); font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; margin-bottom: .4rem; }
-  .form-group input, .form-group select {
-    width: 100%; padding: .75rem 1rem;
-    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 4px; color: #fff; font-family: 'Nunito', sans-serif; font-size: .95rem;
-    outline: none; transition: border-color .2s;
-  }
-  .form-group input:focus, .form-group select:focus { border-color: var(--teal-light); }
-  .form-group select option { background: #1a2a2b; }
-  .form-submit {
-    width: 100%; padding: .9rem; background: var(--yellow); border: none;
-    color: var(--deep); font-family: 'Nunito', sans-serif; font-size: .85rem;
-    font-weight: 700; letter-spacing: .15em; text-transform: uppercase;
-    cursor: pointer; border-radius: 4px; transition: background .2s;
-  }
-  .form-submit:hover { background: var(--yellow-light); }
+  #join{padding:10rem 2.5rem}
+  .join-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:6rem;align-items:start}
+  .join-left h2{font-family:'Bricolage Grotesque',sans-serif;font-size:clamp(2.5rem,5vw,4rem);font-weight:800;color:#fff;line-height:1.05;margin-bottom:2rem}
+  .join-left p{font-size:0.95rem;color:rgba(255,255,255,0.42);line-height:1.85;margin-bottom:1rem;max-width:400px}
+  .join-meta{margin-top:2rem;font-size:0.82rem;color:rgba(255,255,255,0.3);line-height:2;letter-spacing:0.02em}
+  .join-meta strong{color:rgba(255,255,255,0.55)}
+  .voice-parts{display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:2rem}
+  .voice-part{padding:0.8rem 1rem;border:1px solid rgba(255,255,255,0.07);border-radius:4px;font-size:0.82rem;color:rgba(255,255,255,0.45);letter-spacing:0.05em}
+
+  .join-form{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(20px);padding:2.5rem;border-radius:8px}
+  .join-form h3{font-family:'Bricolage Grotesque',sans-serif;color:#fff;font-size:1.2rem;margin-bottom:1.8rem;font-weight:700}
+  .form-group{margin-bottom:1.1rem}
+  .form-group label{display:block;color:rgba(255,255,255,0.3);font-size:0.72rem;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:0.35rem}
+  .form-group input,.form-group select{width:100%;padding:0.7rem 0.9rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:3px;color:#fff;font-family:'Nunito',sans-serif;font-size:0.9rem;outline:none;transition:border-color 0.2s}
+  .form-group input:focus,.form-group select:focus{border-color:var(--teal-light)}
+  .form-group select option{background:#111c1d}
+  .form-submit{width:100%;padding:0.85rem;background:var(--yellow);border:none;color:#111c1d;font-family:'Nunito',sans-serif;font-size:0.8rem;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;cursor:pointer;border-radius:3px;transition:background 0.2s;margin-top:0.5rem}
+  .form-submit:hover{background:var(--yellow-l)}
 
   /* ── GALLERY ── */
-  #gallery { background: #0d1718; }
-  #gallery .section-title { color: #fff; }
-  #gallery .section-label { color: var(--teal-light); }
-  .gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-  .gallery-item {
-    border-radius: 6px; overflow: hidden; aspect-ratio: 4/3;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 2.5rem; position: relative; transition: transform .3s;
-  }
-  .gallery-item:hover { transform: scale(1.02); z-index: 1; }
-  .gallery-item:first-child { grid-column: span 2; aspect-ratio: 16/9; }
-  .gallery-caption { position:absolute;inset:0;background:rgba(17,28,29,0);display:flex;align-items:flex-end;padding:1rem;transition:background .3s; }
-  .gallery-item:hover .gallery-caption { background:rgba(17,28,29,0.6); }
-  .gallery-caption span { color:rgba(255,255,255,0);font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;transition:color .3s; }
-  .gallery-item:hover .gallery-caption span { color:rgba(255,255,255,.85); }
+  #gallery{padding:8rem 2.5rem}
+  .gallery-header{max-width:1200px;margin:0 auto 3rem}
+  .gallery-header h2{font-family:'Bricolage Grotesque',sans-serif;font-size:clamp(2.5rem,5vw,4rem);font-weight:800;color:#fff}
+  .gallery-grid{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem}
+  .gallery-item{border-radius:4px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;font-size:2.5rem;position:relative;transition:transform 0.3s}
+  .gallery-item:hover{transform:scale(1.02);z-index:1}
+  .gallery-item:first-child{grid-column:span 2;aspect-ratio:16/9}
+  .gallery-caption{position:absolute;inset:0;background:rgba(17,28,29,0);display:flex;align-items:flex-end;padding:1rem;transition:background 0.3s}
+  .gallery-item:hover .gallery-caption{background:rgba(17,28,29,0.6)}
+  .gallery-caption span{color:rgba(255,255,255,0);font-size:0.78rem;letter-spacing:0.1em;text-transform:uppercase;transition:color 0.3s}
+  .gallery-item:hover .gallery-caption span{color:rgba(255,255,255,0.8)}
 
   /* ── CONTACT ── */
-  #contact { background: var(--bg); }
-  #contact .section-title { color: #fff; }
-  .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; }
-  .contact-info .info-item { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: flex-start; }
-  .info-icon { font-size: 1.2rem; margin-top: 2px; }
-  .info-text strong { display: block; color: rgba(255,255,255,0.7); font-size: .82rem; letter-spacing: .1em; text-transform: uppercase; margin-bottom: .2rem; }
-  .info-text span { color: rgba(255,255,255,0.4); font-size: .95rem; }
-  .social-links { display: flex; gap: 1rem; margin-top: 2rem; }
-  .social-link {
-    width: 40px; height: 40px;
-    background: var(--card-dark); border: 1px solid var(--card-border);
-    border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    color: var(--teal-light); font-size: 1rem; text-decoration: none; transition: background .2s;
-  }
-  .social-link:hover { background: rgba(123,188,190,0.1); }
-  .contact-map {
-    background: var(--card-dark); border: 1px solid var(--card-border);
-    backdrop-filter: blur(12px);
-    border-radius: 8px; min-height: 280px;
-    display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: .5rem;
-  }
-  .contact-map span { font-size: 3rem; }
-  .contact-map p { color: rgba(255,255,255,0.25); font-size: .85rem; letter-spacing: .1em; text-transform: uppercase; }
+  #contact{padding:10rem 2.5rem}
+  .contact-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:2fr 1fr;gap:6rem;align-items:start}
+  .contact-left h2{font-family:'Bricolage Grotesque',sans-serif;font-size:clamp(2.5rem,5vw,4rem);font-weight:800;color:#fff;line-height:1.05;margin-bottom:3rem}
+  .info-item{display:flex;gap:1rem;margin-bottom:1.8rem;align-items:flex-start}
+  .info-icon{font-size:1.1rem;margin-top:2px;opacity:0.6}
+  .info-text strong{display:block;color:rgba(255,255,255,0.5);font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.2rem}
+  .info-text span{color:rgba(255,255,255,0.3);font-size:0.9rem}
+  .social-links{display:flex;gap:0.8rem;margin-top:2.5rem}
+  .social-link{width:38px;height:38px;border:1px solid rgba(255,255,255,0.1);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--teal-light);font-size:0.9rem;text-decoration:none;transition:all 0.2s}
+  .social-link:hover{border-color:var(--teal);background:rgba(123,188,190,0.08)}
+  .contact-right{padding-top:1rem}
+  .contact-right p{font-size:0.82rem;color:rgba(255,255,255,0.22);line-height:1.9;letter-spacing:0.02em}
 
   /* ── FOOTER ── */
-  footer {
-    background: #0a1213; text-align: center;
-    padding: 2.5rem; color: rgba(255,255,255,0.2);
-    font-size: .85rem; letter-spacing: .05em;
-    border-top: 1px solid rgba(255,255,255,0.05);
-  }
-  footer strong { color: var(--yellow); }
+  footer{padding:2rem 2.5rem;border-top:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem}
+  footer p{color:rgba(255,255,255,0.18);font-size:0.75rem;letter-spacing:0.05em}
+  footer strong{color:var(--yellow)}
+  .footer-legal{font-size:0.68rem;color:rgba(255,255,255,0.12)}
 
-  @media (max-width: 768px) {
-    nav ul { display: none; }
-    .join-grid, .contact-grid { grid-template-columns: 1fr; }
-    .gallery-grid { grid-template-columns: 1fr 1fr; }
-    .gallery-item:first-child { grid-column: span 2; }
-    nav { padding: 1rem 1.5rem; }
-    section { padding: 4rem 1.5rem; }
+  @media(max-width:768px){
+    nav ul{display:none}
+    nav{padding:1rem 1.5rem}
+    .about-inner,.join-inner,.contact-inner{grid-template-columns:1fr;gap:3rem}
+    .events-poster{grid-template-columns:1fr}
+    .event-item.featured{grid-row:span 1}
+    .events-header{flex-direction:column;align-items:flex-start;gap:0.5rem;margin-bottom:3rem}
+    .gallery-grid{grid-template-columns:1fr 1fr}
+    .gallery-item:first-child{grid-column:span 2}
   }
 </style>
 </head>
@@ -334,7 +251,7 @@
   <ul>
     <li><a href="#about">About</a></li>
     <li><a href="#events">Events</a></li>
-    <li><a href="#join">Join Us</a></li>
+    <li><a href="#join">Join</a></li>
     <li><a href="#gallery">Gallery</a></li>
     <li><a href="#contact">Contact</a></li>
   </ul>
@@ -359,7 +276,7 @@
   <p class="scroll-hint">↓ Scroll</p>
 </section>
 
-<!-- PHOTO INTERLUDE -->
+<!-- PHOTO -->
 <div id="photo-interlude">
   <img src="1.jpg" alt="Singen3000">
   <span class="photo-credit">© Tamu Sengezi</span>
@@ -368,188 +285,172 @@
 
 <!-- ABOUT -->
 <section id="about">
-  <div class="container reveal">
-    <p class="section-label">Our Story</p>
-    <h2 class="section-title">A Voice United Across Generations</h2>
-    <div class="divider"></div>
-    <div class="about-text">
-      <p>Singen3000 was born from a shared belief: that choral music, rooted in centuries of tradition, still has something urgent and alive to say today. We perform the great classical repertoire — Bach, Brahms, Pärt — while remaining open to the unexpected.</p>
-      <p>Our singers come from all walks of life, bound by a love of harmony and a commitment to excellence. Rehearsals are rigorous, joyful, and always worth it.</p>
+  <div class="about-inner">
+    <div class="about-label-col reveal">
+      <p class="section-label">Our Story</p>
+      <h2 class="about-big">A voice<br>for the<br>unexpected.</h2>
+    </div>
+    <div class="about-body reveal" style="transition-delay:0.15s">
+      <p>Singen3000 was born from a shared belief: that choral music, rooted in centuries of tradition, still has something urgent and alive to say today.</p>
+      <p>We perform the great classical repertoire — Bach, Brahms, Pärt — while remaining open to the unexpected. Our singers come from all walks of life, bound by a love of harmony and a commitment to each other.</p>
     </div>
   </div>
 </section>
 
 <!-- EVENTS -->
 <section id="events">
-  <div class="container">
-    <div class="reveal">
+  <div class="events-header reveal">
+    <div class="events-header-left">
       <p class="section-label">On Stage</p>
-      <h2 class="section-title">Upcoming Concerts</h2>
-      <div class="divider"></div>
+      <h2>Upcoming<br>Concerts</h2>
     </div>
-    <div class="events-grid">
-      <div class="event-card reveal">
-        <p class="event-date">15 March 2026 · 19:30</p>
-        <h3 class="event-title">Bach & the Beautiful</h3>
-        <p class="event-detail">A programme of Bach motets and cantatas, with special guest organist Clara Müller. Berliner Dom, Mitte.</p>
-        <span class="event-tag">Classical</span>
+    <div class="events-header-right">Berlin, 2026</div>
+  </div>
+  <div class="events-poster">
+    <div class="event-item featured reveal">
+      <div class="event-num">01</div>
+      <div>
+        <p class="ev-date">15 March 2026 · 19:30</p>
+        <h3 class="ev-title">Bach & the Beautiful</h3>
+        <p class="ev-detail">Motets and cantatas with guest organist Clara Müller. Berliner Dom, Mitte.</p>
+        <span class="ev-tag">Classical</span>
       </div>
-      <div class="event-card reveal" style="transition-delay:0.1s">
-        <p class="event-date">12 April 2026 · 18:00</p>
-        <h3 class="event-title">Spring Voices</h3>
-        <p class="event-detail">An eclectic evening of choral music from five centuries — from Palestrina to contemporary composers. Konzerthaus Berlin.</p>
-        <span class="event-tag">Mixed Programme</span>
-      </div>
-      <div class="event-card reveal" style="transition-delay:0.2s">
-        <p class="event-date">7 June 2026 · 20:00</p>
-        <h3 class="event-title">Brahms: Ein Deutsches Requiem</h3>
-        <p class="event-detail">A full performance of Brahms' Requiem with the Berlin Chamber Orchestra. Philharmonie, Tiergarten.</p>
-        <span class="event-tag">Classical</span>
-      </div>
+    </div>
+    <div class="event-item reveal" style="transition-delay:0.1s">
+      <div class="event-num">02</div>
+      <p class="ev-date">12 April 2026 · 18:00</p>
+      <h3 class="ev-title">Spring Voices</h3>
+      <p class="ev-detail">Five centuries of choral music. Konzerthaus Berlin.</p>
+      <span class="ev-tag">Mixed</span>
+    </div>
+    <div class="event-item reveal" style="transition-delay:0.2s">
+      <div class="event-num">03</div>
+      <p class="ev-date">7 June 2026 · 20:00</p>
+      <h3 class="ev-title">Brahms: Ein Deutsches Requiem</h3>
+      <p class="ev-detail">With the Berlin Chamber Orchestra. Philharmonie, Tiergarten.</p>
+      <span class="ev-tag">Classical</span>
     </div>
   </div>
 </section>
 
 <!-- JOIN -->
 <section id="join">
-  <div class="container">
-    <div class="join-grid">
-      <div class="join-info reveal">
-        <p class="section-label">Auditions Open</p>
-        <h2 class="section-title">Sing With Us</h2>
-        <div class="divider"></div>
-        <p>We welcome singers of all backgrounds who share a passion for choral music. Whether you've sung in choirs for decades or are returning after a long break, we'd love to hear from you.</p>
-        <p>Auditions are friendly and informal — we're looking for musicality, ear, and enthusiasm above all else.</p>
-        <p><strong style="color:rgba(255,255,255,0.7)">Rehearsals:</strong> Every Tuesday, 19:00–21:30<br>
-        <strong style="color:rgba(255,255,255,0.7)">Location:</strong> Probenraum, Prenzlauer Berg, Berlin</p>
-        <div class="voice-parts">
-          <div class="voice-part">🎵 Soprano</div>
-          <div class="voice-part">🎵 Alto</div>
-          <div class="voice-part">🎵 Tenor</div>
-          <div class="voice-part">🎵 Bass</div>
-        </div>
+  <div class="join-inner">
+    <div class="join-left reveal">
+      <p class="section-label">Auditions Open</p>
+      <h2>Sing<br>With Us</h2>
+      <div class="divider"></div>
+      <p>We welcome singers of all backgrounds. Auditions are friendly and informal — we're looking for musicality, ear, and enthusiasm above all else.</p>
+      <div class="join-meta">
+        <strong>Rehearsals</strong> — Every Tuesday, 19:00–21:30<br>
+        <strong>Location</strong> — Prenzlauer Berg, Berlin
       </div>
-      <div class="join-form reveal" style="transition-delay:0.15s">
-        <h3>Express Your Interest</h3>
-        <div class="form-group">
-          <label>Full Name</label>
-          <input type="text" placeholder="Anna Schmidt">
-        </div>
-        <div class="form-group">
-          <label>Email Address</label>
-          <input type="email" placeholder="anna@example.com">
-        </div>
-        <div class="form-group">
-          <label>Voice Part</label>
-          <select>
-            <option value="">Select a voice part…</option>
-            <option>Soprano</option><option>Alto</option><option>Tenor</option><option>Bass</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Experience Level</label>
-          <select>
-            <option value="">Select…</option>
-            <option>Beginner (1–3 years)</option>
-            <option>Intermediate (3–8 years)</option>
-            <option>Advanced (8+ years)</option>
-          </select>
-        </div>
-        <button class="form-submit">Send Enquiry</button>
+      <div class="voice-parts">
+        <div class="voice-part">Soprano</div>
+        <div class="voice-part">Alto</div>
+        <div class="voice-part">Tenor</div>
+        <div class="voice-part">Bass</div>
       </div>
+    </div>
+    <div class="join-form reveal" style="transition-delay:0.15s">
+      <h3>Express Your Interest</h3>
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" placeholder="Anna Schmidt">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" placeholder="anna@example.com">
+      </div>
+      <div class="form-group">
+        <label>Voice Part</label>
+        <select><option value="">Select…</option><option>Soprano</option><option>Alto</option><option>Tenor</option><option>Bass</option></select>
+      </div>
+      <div class="form-group">
+        <label>Experience</label>
+        <select><option value="">Select…</option><option>Beginner (1–3 years)</option><option>Intermediate (3–8 years)</option><option>Advanced (8+ years)</option></select>
+      </div>
+      <button class="form-submit">Send Enquiry</button>
     </div>
   </div>
 </section>
 
 <!-- GALLERY -->
 <section id="gallery">
-  <div class="container">
-    <div class="reveal">
-      <p class="section-label">Memories</p>
-      <h2 class="section-title">Gallery</h2>
-      <div class="divider"></div>
-    </div>
-    <div class="gallery-grid reveal">
-      <div class="gallery-item" style="background:linear-gradient(135deg,#2a5c5e,#3d8a8c)">🌸<div class="gallery-caption"><span>Brahms Requiem, 2025</span></div></div>
-      <div class="gallery-item" style="background:linear-gradient(135deg,#5a3a5a,#8a6090)">🎼<div class="gallery-caption"><span>Spring Concert</span></div></div>
-      <div class="gallery-item" style="background:linear-gradient(135deg,#3a5a3a,#5a8a50)">🎵<div class="gallery-caption"><span>Rehearsal</span></div></div>
-      <div class="gallery-item" style="background:linear-gradient(135deg,#1c2e2f,#2a5c5e)">🎤<div class="gallery-caption"><span>Guest Soloist</span></div></div>
-      <div class="gallery-item" style="background:linear-gradient(135deg,#4a3a5a,#7a5a8a)">🏛️<div class="gallery-caption"><span>Berliner Dom</span></div></div>
-    </div>
-    <p class="reveal" style="color:rgba(255,255,255,.2);font-size:.85rem;margin-top:1.5rem;text-align:center;">Replace placeholder tiles with your own photographs</p>
+  <div class="gallery-header reveal">
+    <p class="section-label">Memories</p>
+    <h2>Gallery</h2>
+    <div class="divider"></div>
   </div>
+  <div class="gallery-grid reveal">
+    <div class="gallery-item" style="background:linear-gradient(135deg,#2a5c5e,#3d8a8c)">🌸<div class="gallery-caption"><span>Brahms Requiem, 2025</span></div></div>
+    <div class="gallery-item" style="background:linear-gradient(135deg,#5a3a5a,#8a6090)">🎼<div class="gallery-caption"><span>Spring Concert</span></div></div>
+    <div class="gallery-item" style="background:linear-gradient(135deg,#3a5a3a,#5a8a50)">🎵<div class="gallery-caption"><span>Rehearsal</span></div></div>
+    <div class="gallery-item" style="background:linear-gradient(135deg,#1c2e2f,#2a5c5e)">🎤<div class="gallery-caption"><span>Guest Soloist</span></div></div>
+    <div class="gallery-item" style="background:linear-gradient(135deg,#4a3a5a,#7a5a8a)">🏛️<div class="gallery-caption"><span>Berliner Dom</span></div></div>
+  </div>
+  <p class="reveal" style="max-width:1200px;margin:1.5rem auto 0;color:rgba(255,255,255,0.15);font-size:0.78rem;">Replace placeholder tiles with your own photographs</p>
 </section>
 
 <!-- CONTACT -->
 <section id="contact">
-  <div class="container">
-    <div class="reveal">
+  <div class="contact-inner">
+    <div class="contact-left reveal">
       <p class="section-label">Get In Touch</p>
-      <h2 class="section-title">Contact Us</h2>
-      <div class="divider"></div>
+      <h2>Come<br>find us.</h2>
+      <div class="info-item">
+        <span class="info-icon">📍</span>
+        <div class="info-text"><strong>Address</strong><span>Probenraum, Prenzlauer Berg<br>10405 Berlin</span></div>
+      </div>
+      <div class="info-item">
+        <span class="info-icon">✉️</span>
+        <div class="info-text"><strong>Email</strong><span>hello@singen3000.de</span></div>
+      </div>
+      <div class="info-item">
+        <span class="info-icon">📅</span>
+        <div class="info-text"><strong>Rehearsals</strong><span>Every Tuesday, 19:00–21:30</span></div>
+      </div>
+      <div class="social-links">
+        <a class="social-link" href="#">f</a>
+        <a class="social-link" href="#">in</a>
+        <a class="social-link" href="#">▶</a>
+      </div>
     </div>
-    <div class="contact-grid">
-      <div class="contact-info reveal">
-        <div class="info-item">
-          <span class="info-icon">📍</span>
-          <div class="info-text"><strong>Address</strong><span>Probenraum, Prenzlauer Berg<br>10405 Berlin, Germany</span></div>
-        </div>
-        <div class="info-item">
-          <span class="info-icon">✉️</span>
-          <div class="info-text"><strong>Email</strong><span>hello@singen3000.de</span></div>
-        </div>
-        <div class="info-item">
-          <span class="info-icon">📅</span>
-          <div class="info-text"><strong>Rehearsals</strong><span>Every Tuesday, 19:00–21:30</span></div>
-        </div>
-        <div class="social-links">
-          <a class="social-link" href="#" title="Facebook">f</a>
-          <a class="social-link" href="#" title="Instagram">in</a>
-          <a class="social-link" href="#" title="YouTube">▶</a>
-        </div>
-      </div>
-      <div class="contact-map reveal" style="transition-delay:0.15s">
-        <span>🗺️</span>
-        <p>Prenzlauer Berg, Berlin</p>
-      </div>
+    <div class="contact-right reveal" style="transition-delay:0.15s">
+      <p>We'd love to hear from you — whether you want to sing with us, book us for an event, or just say hello.</p>
     </div>
   </div>
 </section>
 
 <footer>
-  <p>© 2026 <strong>Singen3000</strong> · All rights reserved · Berlin, Germany</p>
-  <p style="margin-top:0.6rem;font-size:0.75rem;opacity:0.5;">Singen3000 e.V. ist ein eingetragener gemeinnütziger Verein. · Registernummer folgt.</p>
+  <p>© 2026 <strong>Singen3000</strong> · Berlin</p>
+  <p class="footer-legal">Singen3000 e.V. ist ein eingetragener gemeinnütziger Verein · Registernummer folgt</p>
 </footer>
 
 <script>
-  // ── Scroll reveal ──
-  const revealEls = document.querySelectorAll('.reveal');
-  const observer = new IntersectionObserver(entries => {
-    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); } });
-  }, { threshold: 0.12 });
-  revealEls.forEach(el => observer.observe(el));
+  // Reveal on scroll
+  const obs = new IntersectionObserver(es => es.forEach(e => { if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target)} }), {threshold:0.1});
+  document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
 
-  // ── Photo parallax + fade ──
-  const photoSection = document.getElementById('photo-interlude');
-  const photoImg = photoSection.querySelector('img');
+  // Photo parallax + fade
+  const ps = document.getElementById('photo-interlude');
+  const pi = ps.querySelector('img');
   window.addEventListener('scroll', () => {
-    const rect = photoSection.getBoundingClientRect();
-    // parallax
-    const pct = Math.min(Math.max(-rect.top / rect.height, 0), 1);
-    photoImg.style.transform = `translateY(${pct * 15}%)`;
-    // fade
-    photoImg.style.opacity = 1 - pct;
-  }, { passive: true });
+    const r = ps.getBoundingClientRect();
+    const p = Math.min(Math.max(-r.top / r.height, 0), 1);
+    pi.style.transform = `translateY(${p * 15}%)`;
+    pi.style.opacity = 1 - p;
+  }, {passive:true});
 
-  // ── Blob scroll fade ──
+  // Blob fade
   const blobs = document.querySelectorAll('.blob');
-  const hero  = document.getElementById('hero');
+  const hero = document.getElementById('hero');
   setTimeout(() => {
-    blobs.forEach(b => { b.style.opacity = '1'; b.style.animation = 'none'; });
+    blobs.forEach(b => { b.style.opacity='1'; b.style.animation='none'; });
     window.addEventListener('scroll', () => {
-      const progress = Math.min(Math.max(window.scrollY / (hero.offsetHeight * 0.55), 0), 1);
-      blobs.forEach(b => b.style.opacity = 1 - progress);
-    }, { passive: true });
+      const p = Math.min(Math.max(window.scrollY / (hero.offsetHeight * 0.55), 0), 1);
+      blobs.forEach(b => b.style.opacity = 1 - p);
+    }, {passive:true});
   }, 3200);
 </script>
 
