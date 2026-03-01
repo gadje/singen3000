@@ -38,12 +38,7 @@
     padding: 1rem 3rem;
     display: flex; justify-content: space-between; align-items: center;
   }
-  .logo {
-    font-family: 'Playfair Display', serif;
-    font-size: 1.5rem; color: var(--teal-light);
-    letter-spacing: 0.05em;
-  }
-  .logo span { color: var(--yellow); }
+  .logo img { height: 44px; width: 44px; border-radius: 50%; object-fit: cover; }
   nav ul { list-style: none; display: flex; gap: 2.5rem; }
   nav ul a {
     text-decoration: none; color: rgba(255,255,255,0.65);
@@ -272,7 +267,7 @@
 <body>
 
 <nav>
-  <div class="logo">Singen<span>3000</span></div>
+  <div class="logo"><img src="logo.png" alt="Singen3000"></div>
   <ul>
     <li><a href="#about">About</a></li>
     <li><a href="#events">Events</a></li>
@@ -286,6 +281,7 @@
 <section id="hero">
   <div class="hero-content">
     <p class="hero-eyebrow">Est. 2000 · Choral Excellence</p>
+    <img src="logo.png" alt="Singen3000" style="width:220px;height:220px;border-radius:50%;object-fit:cover;margin-bottom:1.5rem;box-shadow:0 8px 40px rgba(0,0,0,0.4);">
     <h1 class="hero-title">Singen<em>3000</em></h1>
     <p class="hero-sub">Where classical tradition meets contemporary spirit. Join us in the art of collective voice.</p>
     <a href="#events" class="btn">Upcoming Concerts</a>
