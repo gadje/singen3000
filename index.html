@@ -182,12 +182,13 @@
   }
   .photo-credit {
     position: absolute;
-    bottom: 2.5rem; right: 1.5rem;
-    color: rgba(255,255,255,0.55);
+    bottom: calc(35% + 0.8rem); right: 1.5rem;
+    color: rgba(255,255,255,0.6);
     font-size: 0.75rem;
     letter-spacing: 0.12em;
     font-family: 'Nunito', sans-serif;
     text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+    z-index: 1;
   }
   /* fades the bottom of the photo into the cream of the About section */
   .photo-fade {
@@ -296,7 +297,7 @@
 
   <div class="hero-content">
     <img src="logo.png" alt="Singen3000">
-    <p class="hero-eyebrow">Delivering a-capella bangers since 2021.</p>
+    <p class="hero-eyebrow">Est. 2000 · Choral Excellence</p>
     <h1>Singen<em>3000</em></h1>
     <p class="hero-sub">Classical tradition. Contemporary spirit. Voices in harmony.</p>
     <a href="#events" class="btn btn-primary">Upcoming Concerts</a>
@@ -466,6 +467,15 @@
   const hero  = document.getElementById('hero');
 
 
+
+  // Fade photo interlude on scroll
+  const photoSection = document.getElementById('photo-interlude');
+  const photoImg = photoSection.querySelector('img');
+  window.addEventListener('scroll', () => {
+    const rect = photoSection.getBoundingClientRect();
+    const progress = Math.min(Math.max(-rect.top / rect.height, 0), 1);
+    photoImg.style.opacity = 1 - progress;
+  }, { passive: true });
 
   // Wait for intro animations to finish before scroll takes over
   setTimeout(() => {
