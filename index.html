@@ -160,7 +160,39 @@
     100% { mask-position: 0% 0%;   background-position: 0% 50%; }
   }
 
-  /* ── ABOUT ── */
+  /* ── PHOTO INTERLUDE ── */
+  #photo-interlude {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+  }
+  #photo-interlude img {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    object-position: center;
+  }
+  .photo-credit {
+    position: absolute;
+    bottom: 2.5rem; right: 1.5rem;
+    color: rgba(255,255,255,0.55);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    font-family: 'Nunito', sans-serif;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+  }
+  /* fades the bottom of the photo into the cream of the About section */
+  .photo-fade {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 35%;
+    background: linear-gradient(to bottom, transparent, var(--cream));
+  }
+
+
   #about { background: var(--cream); }
   .about-text p { color:var(--mid-text);line-height:1.85;font-size:1.05rem;margin-bottom:1rem; }
 
