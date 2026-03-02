@@ -1,0 +1,26 @@
+[
+  {
+    "date": "15 march — doors 19:30",
+    "title": "lorem ipsum dolor",
+    "detail": "lorem ipsum dolor sit amet, consectetur adipiscing elit. it's going to be a good one.",
+    "tag": "free entry",
+    "tickets": "#",
+    "featured": true
+  },
+  {
+    "date": "12 april — 18:00",
+    "title": "consectetur adipiscing",
+    "detail": "ut enim ad minim veniam. konzerthaus berlin.",
+    "tag": "tickets tba",
+    "tickets": null,
+    "featured": false
+  },
+  {
+    "date": "7 june — 20:00",
+    "title": "sed do eiusmod tempor",
+    "detail": "duis aute irure dolor in reprehenderit. philharmonie, tiergarten.",
+    "tag": "tickets tba",
+    "tickets": null,
+    "featured": false
+  }
+]
