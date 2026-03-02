@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Germania+One&family=Lexend+Deca:wght@300;400;700;800&family=Nunito:wght@300;400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 
@@ -24,7 +25,6 @@
 html { scroll-behavior: smooth; }
 body { font-family: 'Nunito', sans-serif; background: var(--bg); color: rgba(255,255,255,0.75); overflow-x: hidden; }
 
-/* grain overlay */
 body::before {
   content:''; position:fixed; inset:0; z-index:500; pointer-events:none;
   background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -48,6 +48,20 @@ nav ul a:hover { color:var(--yellow-l); }
   display:flex; align-items:center; justify-content:center;
   text-align:center; overflow:hidden; background:var(--bg);
 }
+#hero-oval {
+  position:absolute; inset:0; width:100%; height:100%;
+  pointer-events:none; z-index:5; overflow:visible;
+}
+#hero-oval path {
+  animation:heroWobble 8s ease-in-out infinite;
+}
+@keyframes heroWobble {
+  0%  {d:path("M 80,5 C 200,-10 520,0 620,80 C 720,160 730,400 640,520 C 550,640 300,660 160,580 C 20,500 -20,320 20,180 C 60,40 80,5 80,5 Z")}
+  25% {d:path("M 100,8 C 220,-5 510,10 610,90 C 710,170 715,410 620,525 C 525,640 280,655 145,572 C 10,489 -10,310 35,172 C 80,34 100,8 100,8 Z")}
+  50% {d:path("M 70,10 C 195,-8 525,5 625,85 C 725,165 720,395 625,518 C 530,641 295,658 152,576 C 9,494 -15,318 28,176 C 71,34 70,10 70,10 Z")}
+  75% {d:path("M 90,6 C 210,-12 515,2 618,82 C 721,162 725,398 632,522 C 539,646 288,660 150,578 C 12,496 -18,315 30,174 C 78,33 90,6 90,6 Z")}
+  100%{d:path("M 80,5 C 200,-10 520,0 620,80 C 720,160 730,400 640,520 C 550,640 300,660 160,580 C 20,500 -20,320 20,180 C 60,40 80,5 80,5 Z")}
+}
 
 /* blobs */
 .blob { position:absolute; border-radius:50%; filter:blur(70px); opacity:0; animation:blobIn 2.2s ease-out forwards; }
@@ -68,7 +82,12 @@ nav ul a:hover { color:var(--yellow-l); }
 @keyframes drift2{0%,100%{transform:translate(0,0)}33%{transform:translate(-20px,16px)}66%{transform:translate(14px,-10px)}}
 @keyframes drift3{0%,100%{transform:translate(0,0)}33%{transform:translate(10px,20px)}66%{transform:translate(-16px,-18px)}}
 
-.hero-content { position:relative; z-index:10; opacity:0; animation:fadeUp 1s ease-out 1.8s forwards; }
+.hero-content {
+  position:relative; z-index:10;
+  text-align:center;
+  opacity:0;
+  animation:fadeUp 1s ease-out 1.8s forwards;
+}
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 
 .hero-content img { width:130px; height:130px; border-radius:50%; object-fit:cover; margin-bottom:2rem; box-shadow:0 0 80px rgba(123,188,190,0.2),0 0 140px rgba(176,138,170,0.1); }
@@ -117,7 +136,6 @@ h1 {
 .photo-credit { position:absolute; bottom:calc(35% + 0.8rem); right:1.5rem; color:rgba(255,255,255,0.55); font-size:0.72rem; letter-spacing:0.12em; font-family:'Nunito',sans-serif; text-shadow:0 1px 8px rgba(0,0,0,0.7); z-index:1; }
 .photo-fade { position:absolute; bottom:0; left:0; right:0; height:40%; background:linear-gradient(to bottom,transparent,var(--bg)); }
 
-/* interstitial photos */
 .photo-interlude-sm { position:relative; width:100%; height:60vh; overflow:hidden; }
 .photo-interlude-sm img { position:absolute; top:0; left:0; width:100%; height:120%; object-fit:cover; object-position:center; }
 .photo-fade-sm { position:absolute; left:0; right:0; height:40%; pointer-events:none; }
@@ -135,7 +153,6 @@ h1 {
 }
 @keyframes wiggle{0%,100%{mask-position:0% 0%;-webkit-mask-position:0% 0%}50%{mask-position:50% 0%;-webkit-mask-position:50% 0%}}
 
-/* reveal on scroll */
 .reveal { opacity:0; transform:translateY(32px); transition:opacity 0.75s ease,transform 0.75s ease; }
 .reveal.visible { opacity:1; transform:translateY(0); }
 
@@ -179,9 +196,13 @@ section { padding:7rem 2.5rem; }
   75% {d:path("M 7,44 C 3,17 32,1 83,2 C 134,3 200,19 199,49 C 198,79 163,97 97,96 C 31,95 9,72 7,44 Z")}
   100%{d:path("M 5,45 C 0,20 30,2 80,2 C 130,2 200,18 200,48 C 200,78 165,95 100,95 C 35,95 8,72 5,45 Z")}
 }
-.featured-bounce { position:absolute; width:65%; text-align:left; animation:dvdX 7s linear infinite alternate, dvdY 5.3s linear infinite alternate; }
-@keyframes dvdX{from{left:8%}to{left:22%}}
-@keyframes dvdY{from{top:8%}to{top:48%}}
+
+/* DVD bounce for featured event content */
+.featured-bounce {
+  position:absolute;
+  width:65%;
+  text-align:left;
+}
 
 .ev-date  { font-size:0.72rem; letter-spacing:0.1em; color:var(--teal-light); margin-bottom:0.6rem; }
 .ev-title { font-family:'Lexend Deca',sans-serif; font-size:1.4rem; font-weight:700; color:#fff; line-height:1.2; margin-bottom:0.6rem; }
@@ -275,7 +296,7 @@ footer strong { color:var(--yellow); }
   <div class="blob blob-4"></div>
   <div class="blob blob-5"></div>
   <div class="blob blob-6"></div>
-  <div class="hero-content">
+  <div class="hero-content" id="hero-dvd">
     <img src="logo.png" alt="Singen3000">
     <p class="hero-eyebrow">Delivering a-cappella bangers since 2021.</p>
     <h1>Singen3000</h1>
@@ -306,9 +327,8 @@ footer strong { color:var(--yellow); }
       <p class="section-label">our story</p>
       <h2 class="about-big">Lorem<br>ipsum<br>dolor.</h2>
     </div>
-    <div class="about-body reveal" style="transition-delay:0.15s">
-      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.</p>
-      <p>Quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.</p>
+    <div class="about-body reveal" style="transition-delay:0.15s" id="about-content">
+      <p style="color:rgba(255,255,255,0.2);font-size:0.8rem">loading…</p>
     </div>
   </div>
 </section>
@@ -344,21 +364,9 @@ footer strong { color:var(--yellow); }
 <!-- JOIN -->
 <section id="join">
   <div class="join-inner">
-    <div class="join-left reveal">
+    <div class="join-left reveal" id="join-content">
       <p class="section-label">auditions open</p>
-      <h2>Lorem<br>Ipsum</h2>
-      <div class="divider"></div>
-      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
-      <div class="join-meta">
-        <strong>Lorem ipsum</strong> — Consectetur, 19:00–21:30<br>
-        <strong>Adipiscing</strong> — Sed do eiusmod, Berlin
-      </div>
-      <div class="voice-parts">
-        <div class="voice-part">Soprano</div>
-        <div class="voice-part">Alto</div>
-        <div class="voice-part">Tenor</div>
-        <div class="voice-part">Bass</div>
-      </div>
+      <p style="color:rgba(255,255,255,0.2);font-size:0.8rem">loading…</p>
     </div>
     <div class="join-form reveal" style="transition-delay:0.15s">
       <h3>Express Your Interest</h3>
@@ -411,17 +419,9 @@ footer strong { color:var(--yellow); }
 <!-- CONTACT -->
 <section id="contact">
   <div class="contact-inner">
-    <div class="contact-left reveal">
+    <div class="contact-left reveal" id="contact-content">
       <p class="section-label">get in touch</p>
-      <h2>Come<br>find us.</h2>
-      <div class="info-item"><span class="info-icon">📍</span><div class="info-text"><strong>Address</strong><span>Lorem ipsum, Prenzlauer Berg<br>10405 Berlin</span></div></div>
-      <div class="info-item"><span class="info-icon">✉️</span><div class="info-text"><strong>Email</strong><span>lorem@ipsum.de</span></div></div>
-      <div class="info-item"><span class="info-icon">📅</span><div class="info-text"><strong>Rehearsals</strong><span>Lorem ipsum, 19:00–21:30</span></div></div>
-      <div class="social-links">
-        <a class="social-link" href="#">f</a>
-        <a class="social-link" href="#">in</a>
-        <a class="social-link" href="#">▶</a>
-      </div>
+      <p style="color:rgba(255,255,255,0.2);font-size:0.8rem">loading…</p>
     </div>
     <div class="contact-right reveal" style="transition-delay:0.15s">
       <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua, quis nostrud exercitation.</p>
@@ -435,6 +435,17 @@ footer strong { color:var(--yellow); }
 </footer>
 
 <script>
+// ── Load markdown content ──
+function loadMd(file, elementId) {
+  fetch(file)
+    .then(r => { if (!r.ok) throw new Error(); return r.text(); })
+    .then(md => { document.getElementById(elementId).innerHTML = marked.parse(md); })
+    .catch(() => { document.getElementById(elementId).innerHTML = '<p style="color:rgba(255,255,255,0.2);font-size:0.8rem">content not found</p>'; });
+}
+loadMd('./content/about.md', 'about-content');
+loadMd('./content/join.md', 'join-content');
+loadMd('./content/contact.md', 'contact-content');
+
 // ── Reveal on scroll ──
 const obs = new IntersectionObserver(es => {
   es.forEach(e => { if(e.isIntersecting){ e.target.classList.add('visible'); obs.unobserve(e.target); } });
@@ -462,6 +473,39 @@ setTimeout(() => {
   }, { passive:true });
 }, 3200);
 
+// ── DVD bounce for hero content ──
+(function() {
+  const el = document.getElementById('hero-dvd');
+  const container = document.getElementById('hero');
+  let x, y, vx = 1.2, vy = 0.9;
+  let started = false;
+
+  function init() {
+    const cW = container.offsetWidth, cH = container.offsetHeight;
+    const eW = el.offsetWidth, eH = el.offsetHeight;
+    x = (cW - eW) / 2;
+    y = (cH - eH) / 2;
+    el.style.left = x + 'px';
+    el.style.top  = y + 'px';
+    el.style.position = 'absolute';
+    el.style.width = eW + 'px'; // lock width so it doesn't reflow
+  }
+
+  function tick() {
+    const cW = container.offsetWidth, cH = container.offsetHeight;
+    const eW = el.offsetWidth, eH = el.offsetHeight;
+    x += vx; y += vy;
+    if (x <= 0)       { x = 0;       vx =  Math.abs(vx); }
+    if (x + eW >= cW) { x = cW - eW; vx = -Math.abs(vx); }
+    if (y <= 0)       { y = 0;       vy =  Math.abs(vy); }
+    if (y + eH >= cH) { y = cH - eH; vy = -Math.abs(vy); }
+    el.style.left = x + 'px';
+    el.style.top  = y + 'px';
+    requestAnimationFrame(tick);
+  }
+
+})();
+
 // ── Load concerts ──
 function renderConcerts(concerts) {
   const poster = document.getElementById('events-poster');
@@ -470,6 +514,7 @@ function renderConcerts(concerts) {
     poster.innerHTML = `<p style="color:rgba(255,255,255,0.4);font-size:1rem;line-height:1.8;padding:2rem 0;">Sadly there are no concerts confirmed for the time being. Check back some time soon — or even better, <a href="#contact" style="color:var(--teal-light);text-decoration:none;border-bottom:1px solid rgba(123,188,190,0.3)">get in touch to book us</a> 👀</p>`;
     return;
   }
+  const featured = concerts.find(c => c.featured);
   const rest = concerts.filter(c => !c.featured);
 
   if (featured) {
@@ -485,7 +530,7 @@ function renderConcerts(concerts) {
         <svg class="featured-oval" viewBox="0 0 204 98" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M 5,45 C 0,20 30,2 80,2 C 130,2 200,18 200,48 C 200,78 165,95 100,95 C 35,95 8,72 5,45 Z" fill="none" stroke="rgba(123,188,190,0.35)" stroke-width="1.5"/>
         </svg>
-        <div class="featured-bounce">
+        <div class="featured-bounce" id="featured-bounce">
           <p class="ev-date">${featured.date}</p>
           <h3 class="ev-title">${featured.title}</h3>
           <p class="ev-detail">${featured.detail}</p>
@@ -510,13 +555,33 @@ function renderConcerts(concerts) {
         ${ticketsBtn}
       </div>`;
   });
+
+  // DVD bounce for featured event block
+  setTimeout(() => {
+    const bounce = document.getElementById('featured-bounce');
+    const container = bounce && bounce.closest('.event-item.featured');
+    if (!bounce || !container) return;
+    let bx = 0, by = 0, bvx = 0.6, bvy = 0.4;
+    function bTick() {
+      const cW = container.offsetWidth, cH = container.offsetHeight;
+      const eW = bounce.offsetWidth, eH = bounce.offsetHeight;
+      bx += bvx; by += bvy;
+      if (bx <= 0)       { bx = 0;       bvx =  Math.abs(bvx); }
+      if (bx + eW >= cW) { bx = cW - eW; bvx = -Math.abs(bvx); }
+      if (by <= 0)       { by = 0;       bvy =  Math.abs(bvy); }
+      if (by + eH >= cH) { by = cH - eH; bvy = -Math.abs(bvy); }
+      bounce.style.left = bx + 'px';
+      bounce.style.top  = by + 'px';
+      requestAnimationFrame(bTick);
+    }
+    bTick();
+  }, 100);
 }
 
 fetch('./concerts.json')
   .then(r => r.json())
   .then(renderConcerts)
   .catch(() => {
-    // fallback data for preview
     renderConcerts([
       { date:"15 march — doors 19:30", title:"lorem ipsum dolor", detail:"lorem ipsum dolor sit amet, consectetur adipiscing elit. it's going to be a good one.", tag:"free entry", tickets:"#", featured:true },
       { date:"12 april — 18:00", title:"consectetur adipiscing", detail:"ut enim ad minim veniam. konzerthaus berlin.", tag:"tickets tba", tickets:null, featured:false },
