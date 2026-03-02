@@ -466,7 +466,10 @@ setTimeout(() => {
 function renderConcerts(concerts) {
   const poster = document.getElementById('events-poster');
   poster.innerHTML = '';
-  const featured = concerts.find(c => c.featured);
+  if (!concerts || concerts.length === 0) {
+    poster.innerHTML = `<p style="color:rgba(255,255,255,0.4);font-size:1rem;line-height:1.8;padding:2rem 0;">Sadly there are no concerts confirmed for the time being. Check back some time soon — or even better, <a href="#contact" style="color:var(--teal-light);text-decoration:none;border-bottom:1px solid rgba(123,188,190,0.3)">get in touch to book us</a> 👀</p>`;
+    return;
+  }
   const rest = concerts.filter(c => !c.featured);
 
   if (featured) {
