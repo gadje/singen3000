@@ -240,7 +240,7 @@ section { padding:7rem 2.5rem; }
 .gallery-grid { display:flex; gap:0.75rem; width:max-content; }
 .gallery-item { border-radius:4px; overflow:hidden; aspect-ratio:4/3; width:360px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:2.5rem; position:relative; scroll-snap-align:start; transition:transform 0.3s; }
 .gallery-item:hover { transform:scale(1.02); }
-.gallery-item:first-child { width:560px; aspect-ratio:16/9; }
+.gallery-item--hero { width:560px; aspect-ratio:16/9; }
 .gallery-caption { position:absolute; inset:0; background:rgba(17,28,29,0); display:flex; align-items:flex-end; padding:1rem; transition:background 0.3s; }
 .gallery-item:hover .gallery-caption { background:rgba(17,28,29,0.6); }
 .gallery-caption span { color:rgba(255,255,255,0); font-size:0.78rem; letter-spacing:0.1em; text-transform:uppercase; transition:color 0.3s; }
@@ -318,7 +318,7 @@ footer strong { color:var(--yellow); }
 
 <!-- PHOTO 1 -->
 <div id="photo-interlude">
-  <img src="1.jpg" alt="">
+  <img src="photos/1.jpg" alt="">
   <span class="photo-credit">© Tamu Sengezi</span>
   <div class="photo-fade"></div>
 </div>
@@ -338,7 +338,7 @@ footer strong { color:var(--yellow); }
 
 <!-- PHOTO 2 -->
 <div class="photo-interlude-sm">
-  <img src="1.jpg" alt="">
+  <img src="photos/1.jpg" alt="">
   <div class="photo-fade-sm photo-fade-sm-top"></div>
   <div class="photo-fade-sm photo-fade-sm-bot"></div>
 </div>
@@ -403,12 +403,8 @@ footer strong { color:var(--yellow); }
     <div class="divider"></div>
   </div>
   <div class="gallery-scroll reveal">
-    <div class="gallery-grid">
-      <div class="gallery-item" style="background:linear-gradient(135deg,#2a5c5e,#3d8a8c)">🌸<div class="gallery-caption"><span>Brahms Requiem, 2025</span></div></div>
-      <div class="gallery-item" style="background:linear-gradient(135deg,#5a3a5a,#8a6090)">🎼<div class="gallery-caption"><span>Spring Concert</span></div></div>
-      <div class="gallery-item" style="background:linear-gradient(135deg,#3a5a3a,#5a8a50)">🎵<div class="gallery-caption"><span>Rehearsal</span></div></div>
-      <div class="gallery-item" style="background:linear-gradient(135deg,#1c2e2f,#2a5c5e)">🎤<div class="gallery-caption"><span>Guest Soloist</span></div></div>
-      <div class="gallery-item" style="background:linear-gradient(135deg,#4a3a5a,#7a5a8a)">🏛️<div class="gallery-caption"><span>Berliner Dom</span></div></div>
+    <div class="gallery-grid" id="gallery-grid">
+      <p style="color:rgba(255,255,255,0.2);font-size:0.8rem;padding:1rem">loading photos…</p>
     </div>
   </div>
   <p class="reveal" style="max-width:1200px;margin:1.5rem auto 0;color:rgba(255,255,255,0.15);font-size:0.78rem;">Replace placeholder tiles with your own photographs</p>
@@ -450,6 +446,33 @@ function loadMd(file, elementId) {
 loadMd('./content/about.md', 'about-content');
 loadMd('./content/join.md', 'join-content');
 loadMd('./content/contact.md', 'contact-content');
+
+// ── Load gallery photos ──
+fetch('./photos.json')
+  .then(r => r.json())
+  .then(photos => {
+    const grid = document.getElementById('gallery-grid');
+    grid.innerHTML = photos.map((p, i) => `
+      <div class="gallery-item${i === 0 ? ' gallery-item--hero' : ''}">
+        <img src="photos/${p.file}" alt="${p.caption}" style="width:100%;height:100%;object-fit:cover">
+        <div class="gallery-caption"><span>${p.caption}</span></div>
+      </div>`).join('');
+  })
+  .catch(() => {
+    // fallback placeholders
+    const grid = document.getElementById('gallery-grid');
+    const placeholders = [
+      { emoji:'🌸', caption:'Brahms Requiem, 2025', bg:'135deg,#2a5c5e,#3d8a8c', hero:true },
+      { emoji:'🎼', caption:'Spring Concert',       bg:'135deg,#5a3a5a,#8a6090' },
+      { emoji:'🎵', caption:'Rehearsal',            bg:'135deg,#3a5a3a,#5a8a50' },
+      { emoji:'🎤', caption:'Guest Soloist',        bg:'135deg,#1c2e2f,#2a5c5e' },
+      { emoji:'🏛️', caption:'Berliner Dom',         bg:'135deg,#4a3a5a,#7a5a8a' },
+    ];
+    grid.innerHTML = placeholders.map(p => `
+      <div class="gallery-item${p.hero ? ' gallery-item--hero' : ''}" style="background:linear-gradient(${p.bg})">
+        ${p.emoji}<div class="gallery-caption"><span>${p.caption}</span></div>
+      </div>`).join('');
+  });
 
 // ── Gallery drag to scroll ──
 const galleryScroll = document.querySelector('.gallery-scroll');
