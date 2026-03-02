@@ -234,10 +234,13 @@ section { padding:7rem 2.5rem; }
 #gallery { padding:8rem 2.5rem; }
 .gallery-header { max-width:1200px; margin:0 auto 3rem; }
 .gallery-header h2 { font-family:'Lexend Deca',sans-serif; font-size:clamp(2.5rem,5vw,4rem); font-weight:800; color:#fff; }
-.gallery-grid { max-width:1200px; margin:0 auto; display:grid; grid-template-columns:repeat(3,1fr); gap:0.75rem; }
-.gallery-item { border-radius:4px; overflow:hidden; aspect-ratio:4/3; display:flex; align-items:center; justify-content:center; font-size:2.5rem; position:relative; transition:transform 0.3s; }
-.gallery-item:hover { transform:scale(1.02); z-index:1; }
-.gallery-item:first-child { grid-column:span 2; aspect-ratio:16/9; }
+.gallery-scroll { max-width:1200px; margin:0 auto; overflow-x:auto; overflow-y:visible; cursor:grab; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:0.5rem; }
+.gallery-scroll::-webkit-scrollbar { display:none; }
+.gallery-scroll.grabbing { cursor:grabbing; }
+.gallery-grid { display:flex; gap:0.75rem; width:max-content; }
+.gallery-item { border-radius:4px; overflow:hidden; aspect-ratio:4/3; width:360px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:2.5rem; position:relative; scroll-snap-align:start; transition:transform 0.3s; }
+.gallery-item:hover { transform:scale(1.02); }
+.gallery-item:first-child { width:560px; aspect-ratio:16/9; }
 .gallery-caption { position:absolute; inset:0; background:rgba(17,28,29,0); display:flex; align-items:flex-end; padding:1rem; transition:background 0.3s; }
 .gallery-item:hover .gallery-caption { background:rgba(17,28,29,0.6); }
 .gallery-caption span { color:rgba(255,255,255,0); font-size:0.78rem; letter-spacing:0.1em; text-transform:uppercase; transition:color 0.3s; }
@@ -399,12 +402,14 @@ footer strong { color:var(--yellow); }
     <h2>Gallery</h2>
     <div class="divider"></div>
   </div>
-  <div class="gallery-grid reveal">
-    <div class="gallery-item" style="background:linear-gradient(135deg,#2a5c5e,#3d8a8c)">🌸<div class="gallery-caption"><span>Brahms Requiem, 2025</span></div></div>
-    <div class="gallery-item" style="background:linear-gradient(135deg,#5a3a5a,#8a6090)">🎼<div class="gallery-caption"><span>Spring Concert</span></div></div>
-    <div class="gallery-item" style="background:linear-gradient(135deg,#3a5a3a,#5a8a50)">🎵<div class="gallery-caption"><span>Rehearsal</span></div></div>
-    <div class="gallery-item" style="background:linear-gradient(135deg,#1c2e2f,#2a5c5e)">🎤<div class="gallery-caption"><span>Guest Soloist</span></div></div>
-    <div class="gallery-item" style="background:linear-gradient(135deg,#4a3a5a,#7a5a8a)">🏛️<div class="gallery-caption"><span>Berliner Dom</span></div></div>
+  <div class="gallery-scroll reveal">
+    <div class="gallery-grid">
+      <div class="gallery-item" style="background:linear-gradient(135deg,#2a5c5e,#3d8a8c)">🌸<div class="gallery-caption"><span>Brahms Requiem, 2025</span></div></div>
+      <div class="gallery-item" style="background:linear-gradient(135deg,#5a3a5a,#8a6090)">🎼<div class="gallery-caption"><span>Spring Concert</span></div></div>
+      <div class="gallery-item" style="background:linear-gradient(135deg,#3a5a3a,#5a8a50)">🎵<div class="gallery-caption"><span>Rehearsal</span></div></div>
+      <div class="gallery-item" style="background:linear-gradient(135deg,#1c2e2f,#2a5c5e)">🎤<div class="gallery-caption"><span>Guest Soloist</span></div></div>
+      <div class="gallery-item" style="background:linear-gradient(135deg,#4a3a5a,#7a5a8a)">🏛️<div class="gallery-caption"><span>Berliner Dom</span></div></div>
+    </div>
   </div>
   <p class="reveal" style="max-width:1200px;margin:1.5rem auto 0;color:rgba(255,255,255,0.15);font-size:0.78rem;">Replace placeholder tiles with your own photographs</p>
 </section>
@@ -445,6 +450,14 @@ function loadMd(file, elementId) {
 loadMd('./content/about.md', 'about-content');
 loadMd('./content/join.md', 'join-content');
 loadMd('./content/contact.md', 'contact-content');
+
+// ── Gallery drag to scroll ──
+const galleryScroll = document.querySelector('.gallery-scroll');
+let isDown = false, startX, scrollLeft;
+galleryScroll.addEventListener('mousedown', e => { isDown = true; galleryScroll.classList.add('grabbing'); startX = e.pageX - galleryScroll.offsetLeft; scrollLeft = galleryScroll.scrollLeft; });
+galleryScroll.addEventListener('mouseleave', () => { isDown = false; galleryScroll.classList.remove('grabbing'); });
+galleryScroll.addEventListener('mouseup', () => { isDown = false; galleryScroll.classList.remove('grabbing'); });
+galleryScroll.addEventListener('mousemove', e => { if (!isDown) return; e.preventDefault(); const x = e.pageX - galleryScroll.offsetLeft; galleryScroll.scrollLeft = scrollLeft - (x - startX) * 1.5; });
 
 // ── Reveal on scroll ──
 const obs = new IntersectionObserver(es => {
