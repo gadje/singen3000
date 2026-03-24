@@ -730,7 +730,7 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Processing…';
 
-      const API = ''; // set to your Fly.io backend URL e.g. https://choralsplit.fly.dev
+      const API = 'https://choralsplit.fly.dev';
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('score_format', document.getElementById('scoreFormat').value);
