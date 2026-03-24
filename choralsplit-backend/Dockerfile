@@ -1,32 +1,41 @@
-# ── Stage 1: download Audiveris ──────────────────────────────────────────────
-FROM debian:bookworm-slim AS audiveris-fetch
+# ── Stage 1: build Audiveris from source ─────────────────────────────────────
+FROM eclipse-temurin:25-jdk-jammy AS audiveris-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl unzip ca-certificates \
+    git curl unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Audiveris 5.3 — check https://github.com/Audiveris/audiveris/releases for latest
-ARG AUDIVERIS_VERSION=5.3.1
-RUN curl -fsSL \
-    "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris_${AUDIVERIS_VERSION}.zip" \
-    -o /tmp/audiveris.zip \
-    && unzip /tmp/audiveris.zip -d /opt \
-    && mv /opt/Audiveris* /opt/audiveris \
-    && chmod +x /opt/audiveris/bin/Audiveris \
-    && rm /tmp/audiveris.zip
+# Clone the latest release tag
+ARG AUDIVERIS_TAG=5.10.1
+RUN git clone --depth 1 --branch ${AUDIVERIS_TAG} \
+    https://github.com/Audiveris/audiveris.git /build/audiveris
+
+WORKDIR /build/audiveris
+
+# Build only the app subproject (skipping tests and packaging)
+RUN ./gradlew :app:installDist -x test --no-daemon
+
+# Move whatever installDist created (directory name varies by Gradle version)
+RUN mv "$(find /build/audiveris/app/build/install -mindepth 1 -maxdepth 1 -type d | head -1)" /opt/audiveris \
+    && chmod +x /opt/audiveris/bin/*
 
 
 # ── Stage 2: runtime image ───────────────────────────────────────────────────
 FROM python:3.11-slim-bookworm
 
-# Java runtime (Audiveris needs JRE 11+)
+# Copy JRE from the build stage (avoids apt availability issues for openjdk-21)
+COPY --from=audiveris-build /opt/java/openjdk /opt/java/openjdk
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Tesseract OCR (required by Audiveris)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-17-jre-headless \
     tesseract-ocr \
+    tesseract-ocr-deu \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Audiveris
-COPY --from=audiveris-fetch /opt/audiveris /opt/audiveris
+# Copy built Audiveris
+COPY --from=audiveris-build /opt/audiveris /opt/audiveris
 ENV AUDIVERIS_CMD=/opt/audiveris/bin/Audiveris
 
 # Python deps
