@@ -745,8 +745,17 @@
         });
 
         if(!res.ok) {
-          const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-          throw new Error(err.detail || `Server error ${res.status}`);
+          const text = await res.text().catch(() => '');
+          let detail = `Server error ${res.status}`;
+          try {
+            const err = JSON.parse(text);
+            if (typeof err.detail === 'string') detail = err.detail;
+            else if (Array.isArray(err.detail)) detail = err.detail.map(e => e.msg).join('; ');
+          } catch(_) {
+            // non-JSON body (e.g. proxy timeout HTML)
+            if (res.status === 524 || res.status === 504) detail = 'The server timed out processing your score. Try a shorter/simpler PDF.';
+          }
+          throw new Error(detail);
         }
 
         activateStage(1);

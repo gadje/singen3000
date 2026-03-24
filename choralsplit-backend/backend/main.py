@@ -46,7 +46,10 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
         "--",
         str(pdf_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    env = os.environ.copy()
+    env["JAVA_TOOL_OPTIONS"] = "-Djava.awt.headless=true"
+    result = subprocess.run(cmd, capture_output=True,
+                            text=True, timeout=480, env=env)
 
     if result.returncode != 0:
         raise RuntimeError(
