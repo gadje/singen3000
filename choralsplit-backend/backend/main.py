@@ -54,7 +54,8 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
             + result.stderr[-3000:]
         )
 
-    xml_files = list(output_dir.rglob("*.xml")) + list(output_dir.rglob("*.mxl"))
+    xml_files = list(output_dir.rglob("*.xml")) + \
+        list(output_dir.rglob("*.mxl"))
     if not xml_files:
         raise RuntimeError(
             "Audiveris completed but produced no MusicXML output. "
@@ -130,6 +131,27 @@ def make_zip(midi_files: list[Path], zip_path: Path):
             zf.write(mf, mf.name)
 
 
+SOUNDFONT = "/usr/share/sounds/sf2/FluidR3_GM.sf2"
+
+
+def midi_to_mp3(midi_path: Path) -> Path:
+    """Convert a MIDI file to MP3 via fluidsynth (WAV) + ffmpeg."""
+    wav_path = midi_path.with_suffix(".wav")
+    mp3_path = midi_path.with_suffix(".mp3")
+
+    subprocess.run(
+        ["fluidsynth", "-ni", SOUNDFONT,
+            str(midi_path), "-F", str(wav_path), "-r", "44100"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", str(wav_path), "-q:a", "2", str(mp3_path)],
+        check=True, capture_output=True,
+    )
+    wav_path.unlink(missing_ok=True)
+    return mp3_path
+
+
 # ── Route ────────────────────────────────────────────────────────────────────
 
 @app.post("/api/split")
@@ -156,23 +178,30 @@ async def split_score(
         audiveris_out = job_dir / "audiveris"
         audiveris_out.mkdir()
         xml_files = run_audiveris(pdf_path, audiveris_out)
-        xml_path = xml_files[0]  # take first (multi-page scores may produce one file)
+        # take first (multi-page scores may produce one file)
+        xml_path = xml_files[0]
 
         # 3. Split parts with music21
         midi_out = job_dir / "midi"
         midi_out.mkdir()
         parts = split_parts(xml_path, midi_out, part_count)
 
-        # 4. Build ZIP
-        zip_path = job_dir / "all_parts.zip"
-        make_zip([p["midi_path"] for p in parts], zip_path)
+        # 4. Convert MIDI to MP3
+        for p in parts:
+            p["mp3_path"] = midi_to_mp3(p["midi_path"])
 
-        # 5. Return JSON with download URLs
+        # 5. Build ZIP containing both MIDI and MP3 files
+        zip_path = job_dir / "all_parts.zip"
+        all_files = [p["midi_path"]
+                     for p in parts] + [p["mp3_path"] for p in parts]
+        make_zip(all_files, zip_path)
+
+        # 6. Return JSON with download URLs
         return {
             "parts": [
                 {
                     "name": p["name"],
-                    "midi_url": f"/files/{job_id}/midi/{p['midi_path'].name}",
+                    "mp3_url": f"/files/{job_id}/midi/{p['mp3_path'].name}",
                     "note_count": p["note_count"],
                 }
                 for p in parts

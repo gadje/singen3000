@@ -475,7 +475,7 @@
     <div class="hero-content">
       <p class="hero-eyebrow">Choral tools</p>
       <h1>Part Splitter</h1>
-      <p class="hero-sub">Upload a choir score PDF. Get individual MIDI files for every voice part — ready for practice, playback, or arrangement.</p>
+      <p class="hero-sub">Upload a choir score PDF. Get individual MP3 files for every voice part — ready for practice, playback, or arrangement.</p>
     </div>
   </header>
 
@@ -546,7 +546,7 @@
       </div>
       <div class="progress-stage" id="stage4">
         <div class="stage-dot"></div>
-        <span class="stage-label">Generating MIDI files</span>
+        <span class="stage-label">Generating MP3 files</span>
       </div>
       <div class="progress-bar-wrap">
         <div class="progress-bar" id="progressBar"></div>
@@ -586,7 +586,7 @@
       <div class="how-item reveal" style="transition-delay:0.2s">
         <div class="how-num">3</div>
         <p class="how-title">Download by part</p>
-        <p class="how-body">Each voice part is extracted and exported as its own MIDI file, ready to import into a DAW or send to singers for practice.</p>
+        <p class="how-body">Each voice part is extracted and exported as its own MP3 file, ready to import into a DAW or send to singers for practice.</p>
       </div>
     </div>
   </section>
@@ -756,7 +756,7 @@
         activateStage(3);
 
         const data = await res.json();
-        // expected: { parts: [{ name, midi_url, note_count }], zip_url }
+        // expected: { parts: [{ name, mp3_url, note_count }], zip_url }
 
         stages.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
         progressBar.style.width = '100%';
@@ -782,7 +782,7 @@
             <div class="part-name">${escHtml(part.name)}</div>
             <div class="part-meta">${part.note_count ?? '—'} notes</div>
           </div>
-          <a class="btn-download" href="${base}${escHtml(part.midi_url)}" download>Download</a>
+          <a class="btn-download" href="${base}${escHtml(part.mp3_url)}" download>Download</a>
         `;
         partList.appendChild(item);
       });

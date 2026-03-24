@@ -28,10 +28,13 @@ COPY --from=audiveris-build /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-# Tesseract OCR (required by Audiveris)
+# Tesseract OCR + MIDI→MP3 tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-deu \
+    fluidsynth \
+    ffmpeg \
+    fluid-soundfont-gm \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy built Audiveris
