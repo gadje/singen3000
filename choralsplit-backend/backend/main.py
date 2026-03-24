@@ -84,9 +84,20 @@ def split_parts(xml_path: Path, output_dir: Path, part_count: str) -> list[dict]
 
     # If user specified a count, warn but don't fail — use what we have
     results = []
+    seen_names: dict[str, int] = {}
     for i, part in enumerate(parts):
         part_name = _part_name(part, i)
-        midi_filename = f"{_safe_filename(part_name)}.mid"
+        safe = _safe_filename(part_name)
+
+        # De-duplicate: "Voice", "Voice 2", "Voice 3", …
+        if safe in seen_names:
+            seen_names[safe] += 1
+            safe = f"{safe} {seen_names[safe]}"
+            part_name = f"{part_name} {seen_names[safe.rsplit(' ', 1)[0]]}"
+        else:
+            seen_names[safe] = 1
+
+        midi_filename = f"{safe}.mid"
         midi_path = output_dir / midi_filename
 
         # Wrap in a fresh Score so it exports cleanly
