@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Part Splitter · Singen3000</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Germania+One&family=Lexend+Deca:wght@400;700;800&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    :root {
+      --bg:         #111c1d;
+      --teal:       #3d8a8c;
+      --teal-light: #7bbcbe;
+      --mauve:      #9a6fa0;
+      --mauve-l:    #c4a0cc;
+      --yellow:     #d4b84a;
+      --yellow-l:   #ede09a;
+    }
+
+    html { scroll-behavior:smooth; }
+    body {
+      font-family:'Nunito',sans-serif;
+      background:var(--bg);
+      color:rgba(255,255,255,0.75);
+      overflow-x:hidden;
+      min-height:100vh;
+    }
+
+    /* noise overlay */
+    body::before {
+      content:''; position:fixed; inset:0; z-index:500; pointer-events:none;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size:200px; opacity:0.035; mix-blend-mode:overlay;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position:fixed; top:0; width:100%; z-index:200;
+      padding:1.2rem 2.5rem;
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .logo {
+      font-family:'Lexend Deca',sans-serif; font-size:1rem; font-weight:700;
+      color:var(--teal-light); letter-spacing:0.1em; text-decoration:none;
+    }
+    .nav-back {
+      font-size:0.72rem; letter-spacing:0.16em; text-transform:uppercase;
+      font-weight:700; color:rgba(255,255,255,0.25); text-decoration:none;
+      transition:color 0.2s;
+    }
+    .nav-back:hover { color:var(--yellow-l); }
+    .nav-back::before { content:'← '; }
+
+    /* ── HERO ── */
+    .tool-hero {
+      min-height:52vh;
+      display:flex; flex-direction:column;
+      align-items:center; justify-content:flex-end;
+      text-align:center;
+      padding:8rem 2.5rem 5rem;
+      position:relative; overflow:hidden;
+    }
+
+    /* blobs */
+    .blob { position:absolute; border-radius:50%; filter:blur(70px); opacity:0; animation:blobIn 2.2s ease-out forwards; }
+    .blob-1{width:500px;height:500px;background:radial-gradient(circle at 40% 40%,#5bbcbe,#2a6a7a,transparent 70%);top:-120px;left:-100px;animation-delay:.1s}
+    .blob-2{width:380px;height:380px;background:radial-gradient(circle at 50% 50%,#b080c0,#6a3a7a,transparent 70%);bottom:-60px;right:-60px;animation-delay:.4s}
+    .blob-3{width:260px;height:260px;background:radial-gradient(circle at 50% 40%,#d4b84a,#8a7020,transparent 70%);bottom:20%;left:12%;animation-delay:.7s}
+    @keyframes blobIn{from{opacity:0;transform:scale(0.85) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
+    .blob-1{animation:blobIn 2.2s ease-out .1s forwards,drift1 18s ease-in-out 2.3s infinite}
+    .blob-2{animation:blobIn 2.2s ease-out .4s forwards,drift2 22s ease-in-out 2.6s infinite}
+    .blob-3{animation:blobIn 2.2s ease-out .7s forwards,drift3 20s ease-in-out 2.9s infinite}
+    @keyframes drift1{0%,100%{transform:translate(0,0)}33%{transform:translate(18px,-22px)}66%{transform:translate(-12px,14px)}}
+    @keyframes drift2{0%,100%{transform:translate(0,0)}33%{transform:translate(-20px,16px)}66%{transform:translate(14px,-10px)}}
+    @keyframes drift3{0%,100%{transform:translate(0,0)}33%{transform:translate(10px,20px)}66%{transform:translate(-16px,-18px)}}
+
+    .hero-content {
+      position:relative; z-index:10;
+      opacity:0; animation:fadeUp 1s ease-out 1.4s forwards;
+    }
+    @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+
+    .hero-eyebrow {
+      font-size:0.72rem; letter-spacing:0.28em; text-transform:uppercase;
+      color:var(--yellow); margin-bottom:1.2rem; font-weight:600;
+    }
+    h1 {
+      font-family:'Germania One',cursive;
+      font-size:clamp(3.2rem,9vw,7rem);
+      font-weight:400; line-height:1.1; margin-bottom:1.4rem;
+      background:linear-gradient(135deg,#fff 0%,var(--teal-light) 40%,var(--mauve-l) 70%,var(--yellow) 100%);
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+    }
+    .hero-sub {
+      color:rgba(255,255,255,0.35); font-size:0.95rem; font-weight:300;
+      max-width:420px; margin:0 auto; line-height:1.8;
+    }
+
+    /* ── WAVY DIVIDER ── */
+    .divider {
+      width:100%; height:8px; border:none; margin:4rem 0;
+      background:radial-gradient(ellipse at center,var(--mauve) 0%,transparent 100%);
+      mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 8' preserveAspectRatio='none'%3E%3Cpath d='M0,4 C12,0 25,8 37,4 C50,0 62,8 75,4 C87,0 100,8 100,4' stroke='black' stroke-width='4.5' fill='none'/%3E%3C/svg%3E");
+      -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 8' preserveAspectRatio='none'%3E%3Cpath d='M0,4 C12,0 25,8 37,4 C50,0 62,8 75,4 C87,0 100,8 100,4' stroke='black' stroke-width='4.5' fill='none'/%3E%3C/svg%3E");
+      mask-size:200% 100%; -webkit-mask-size:200% 100%;
+      animation:wiggle 7s ease-in-out infinite;
+    }
+    @keyframes wiggle{0%,100%{mask-position:0% 0%;-webkit-mask-position:0% 0%}50%{mask-position:50% 0%;-webkit-mask-position:50% 0%}}
+
+    /* ── MAIN TOOL AREA ── */
+    .tool-section {
+      max-width:740px; margin:0 auto; padding:0 2.5rem 8rem;
+      position:relative; z-index:10;
+    }
+
+    .section-label {
+      font-size:0.68rem; letter-spacing:0.32em; text-transform:uppercase;
+      color:var(--teal); font-weight:700; margin-bottom:1.8rem;
+    }
+
+    /* ── UPLOAD ZONE ── */
+    .upload-zone {
+      border:1px solid rgba(123,188,190,0.2);
+      border-radius:8px;
+      padding:3.5rem 2rem;
+      text-align:center;
+      cursor:pointer;
+      transition:border-color 0.25s, background 0.25s;
+      position:relative;
+      background:rgba(255,255,255,0.015);
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color:rgba(123,188,190,0.55);
+      background:rgba(123,188,190,0.04);
+    }
+    .upload-zone input[type=file] {
+      position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;
+    }
+    .upload-icon {
+      width:48px; height:48px; margin:0 auto 1.4rem;
+      opacity:0.35;
+    }
+    .upload-icon svg { width:100%; height:100%; }
+    .upload-label {
+      font-family:'Lexend Deca',sans-serif; font-weight:700;
+      font-size:1rem; color:#fff; margin-bottom:0.5rem;
+    }
+    .upload-hint {
+      font-size:0.8rem; color:rgba(255,255,255,0.28); line-height:1.6;
+    }
+    .upload-hint strong { color:var(--teal-light); font-weight:600; }
+
+    /* file selected state */
+    .upload-zone.has-file { border-color:rgba(212,184,74,0.4); background:rgba(212,184,74,0.03); }
+    .upload-zone.has-file .upload-icon { opacity:1; }
+    .file-name {
+      display:none; font-size:0.85rem; color:var(--yellow-l);
+      margin-top:0.8rem; font-weight:600; letter-spacing:0.02em;
+    }
+    .upload-zone.has-file .file-name { display:block; }
+    .upload-zone.has-file .upload-hint { display:none; }
+
+    /* ── OPTIONS ── */
+    .options-row {
+      margin-top:2rem;
+      display:grid; grid-template-columns:1fr 1fr; gap:1rem;
+    }
+    .option-group label {
+      display:block; color:rgba(255,255,255,0.3);
+      font-size:0.72rem; letter-spacing:0.14em; text-transform:uppercase;
+      margin-bottom:0.4rem;
+    }
+    .option-group select, .option-group input {
+      width:100%; padding:0.7rem 0.9rem;
+      background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.09);
+      border-radius:3px; color:#fff;
+      font-family:'Nunito',sans-serif; font-size:0.9rem;
+      outline:none; transition:border-color 0.2s;
+      appearance:none; -webkit-appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.25)'/%3E%3C/svg%3E");
+      background-repeat:no-repeat; background-position:right 0.8rem center;
+      padding-right:2rem;
+    }
+    .option-group select:focus, .option-group input:focus { border-color:var(--teal-light); }
+    .option-group select option { background:#111c1d; }
+
+    /* ── SUBMIT ── */
+    .submit-row { margin-top:2rem; }
+    .btn-submit {
+      width:100%; padding:1rem;
+      background:none; color:var(--yellow);
+      font-family:'Nunito',sans-serif; font-size:0.82rem;
+      font-weight:700; letter-spacing:0.16em; text-transform:uppercase;
+      cursor:pointer; border:1px solid rgba(212,184,74,0.45);
+      border-radius:30px; transition:opacity 0.2s, border-color 0.2s;
+    }
+    .btn-submit:hover:not(:disabled) { opacity:0.7; }
+    .btn-submit:disabled { opacity:0.3; cursor:not-allowed; }
+
+    /* ── PROGRESS ── */
+    .progress-area {
+      display:none; margin-top:2rem;
+      background:rgba(255,255,255,0.025);
+      border:1px solid rgba(255,255,255,0.07);
+      border-radius:8px; padding:2rem;
+    }
+    .progress-area.visible { display:block; }
+
+    .progress-stage {
+      display:flex; align-items:center; gap:1rem;
+      margin-bottom:1.2rem; opacity:0.25;
+      transition:opacity 0.4s;
+    }
+    .progress-stage.active { opacity:1; }
+    .progress-stage.done { opacity:0.55; }
+
+    .stage-dot {
+      width:8px; height:8px; border-radius:50%; flex-shrink:0;
+      background:rgba(255,255,255,0.15);
+      transition:background 0.4s;
+    }
+    .progress-stage.active .stage-dot { background:var(--teal-light); box-shadow:0 0 8px rgba(123,188,190,0.5); }
+    .progress-stage.done .stage-dot { background:var(--yellow); }
+
+    .stage-label {
+      font-size:0.82rem; color:rgba(255,255,255,0.55); letter-spacing:0.05em;
+    }
+    .progress-stage.active .stage-label { color:#fff; }
+
+    .progress-bar-wrap {
+      height:2px; background:rgba(255,255,255,0.07);
+      border-radius:2px; margin-top:1.5rem; overflow:hidden;
+    }
+    .progress-bar {
+      height:100%; width:0%; border-radius:2px;
+      background:linear-gradient(90deg,var(--teal),var(--mauve-l));
+      transition:width 0.5s ease;
+    }
+
+    /* ── RESULTS ── */
+    .results-area {
+      display:none; margin-top:2.5rem;
+    }
+    .results-area.visible { display:block; }
+
+    .results-header {
+      font-family:'Lexend Deca',sans-serif; font-weight:700;
+      font-size:0.95rem; color:#fff; margin-bottom:1.2rem;
+      letter-spacing:0.03em;
+    }
+
+    .part-list { display:flex; flex-direction:column; gap:0.6rem; }
+
+    .part-item {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0.9rem 1.2rem;
+      background:rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.06);
+      border-radius:4px;
+      transition:border-color 0.2s;
+    }
+    .part-item:hover { border-color:rgba(123,188,190,0.25); }
+
+    .part-name {
+      font-size:0.88rem; font-weight:600; color:rgba(255,255,255,0.75);
+      letter-spacing:0.04em;
+    }
+    .part-meta {
+      font-size:0.75rem; color:rgba(255,255,255,0.25);
+      margin-top:0.15rem; letter-spacing:0.04em;
+    }
+
+    .btn-download {
+      padding:0.4rem 1rem;
+      background:none; color:var(--teal-light);
+      font-family:'Nunito',sans-serif; font-size:0.72rem;
+      font-weight:700; letter-spacing:0.12em; text-transform:uppercase;
+      cursor:pointer; border:1px solid rgba(123,188,190,0.3);
+      border-radius:20px; text-decoration:none;
+      transition:opacity 0.2s;
+      white-space:nowrap;
+    }
+    .btn-download:hover { opacity:0.65; }
+
+    .btn-download-all {
+      display:block; width:100%; margin-top:1.2rem;
+      padding:0.9rem;
+      background:none; color:var(--yellow);
+      font-family:'Nunito',sans-serif; font-size:0.8rem;
+      font-weight:700; letter-spacing:0.14em; text-transform:uppercase;
+      cursor:pointer; border:1px solid rgba(212,184,74,0.4);
+      border-radius:30px; transition:opacity 0.2s; text-align:center;
+      text-decoration:none;
+    }
+    .btn-download-all:hover { opacity:0.7; }
+
+    /* ── ERROR ── */
+    .error-area {
+      display:none; margin-top:1.5rem;
+      padding:1.2rem 1.4rem;
+      background:rgba(180,60,60,0.07);
+      border:1px solid rgba(180,60,60,0.2);
+      border-radius:6px;
+    }
+    .error-area.visible { display:block; }
+    .error-area p {
+      font-size:0.85rem; color:rgba(255,160,140,0.8); line-height:1.6;
+    }
+
+    /* ── HOW IT WORKS ── */
+    .how-section {
+      max-width:740px; margin:0 auto; padding:0 2.5rem 8rem;
+    }
+    .how-grid {
+      display:grid; grid-template-columns:repeat(3,1fr); gap:1.5rem;
+      margin-top:2rem;
+    }
+    .how-item {
+      padding:1.6rem;
+      background:rgba(255,255,255,0.02);
+      border:1px solid rgba(255,255,255,0.05);
+      border-radius:6px;
+    }
+    .how-num {
+      font-family:'Germania One',cursive;
+      font-size:2.2rem; line-height:1;
+      color:var(--teal); opacity:0.4;
+      margin-bottom:0.8rem;
+    }
+    .how-title {
+      font-family:'Lexend Deca',sans-serif; font-weight:700;
+      font-size:0.88rem; color:#fff; margin-bottom:0.5rem;
+    }
+    .how-body {
+      font-size:0.8rem; color:rgba(255,255,255,0.3); line-height:1.7;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      padding:2rem 2.5rem;
+      border-top:1px solid rgba(255,255,255,0.05);
+      display:flex; justify-content:space-between; align-items:center;
+      flex-wrap:wrap; gap:1rem;
+    }
+    footer p { color:rgba(255,255,255,0.18); font-size:0.75rem; letter-spacing:0.05em; }
+    footer strong { color:var(--yellow); }
+
+    /* reveal */
+    .reveal { opacity:0; transform:translateY(24px); transition:opacity 0.7s ease, transform 0.7s ease; }
+    .reveal.visible { opacity:1; transform:translateY(0); }
+
+    @media(max-width:600px){
+      .options-row { grid-template-columns:1fr; }
+      .how-grid { grid-template-columns:1fr; }
+      h1 { font-size:clamp(2.8rem,12vw,4.5rem); }
+    }
+
+    /* ── PASSWORD GATE ── */
+    #gate {
+      position:fixed; inset:0; z-index:900;
+      background:var(--bg);
+      display:flex; align-items:center; justify-content:center;
+      padding:2rem;
+    }
+    #gate.hidden { display:none; }
+
+    /* reuse noise overlay on gate too */
+    #gate::before {
+      content:''; position:absolute; inset:0; pointer-events:none;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size:200px; opacity:0.035; mix-blend-mode:overlay;
+    }
+
+    .gate-blob { position:absolute; border-radius:50%; filter:blur(80px); }
+    .gate-blob-1{width:500px;height:500px;background:radial-gradient(circle at 40% 40%,#5bbcbe,#2a6a7a,transparent 70%);top:-140px;left:-120px;opacity:0.7}
+    .gate-blob-2{width:360px;height:360px;background:radial-gradient(circle at 50% 50%,#b080c0,#6a3a7a,transparent 70%);bottom:-80px;right:-80px;opacity:0.6}
+    .gate-blob-3{width:240px;height:240px;background:radial-gradient(circle at 50% 40%,#d4b84a,#8a7020,transparent 70%);bottom:20%;left:15%;opacity:0.45}
+
+    .gate-card {
+      position:relative; z-index:1;
+      width:100%; max-width:380px;
+      text-align:center;
+    }
+
+    .gate-logo {
+      font-family:'Lexend Deca',sans-serif; font-size:0.9rem; font-weight:700;
+      color:var(--teal-light); letter-spacing:0.1em; margin-bottom:2.5rem;
+      display:block;
+    }
+
+    .gate-title {
+      font-family:'Germania One',cursive;
+      font-size:clamp(2.2rem,8vw,3.5rem);
+      font-weight:400; line-height:1.1; margin-bottom:0.8rem;
+      background:linear-gradient(135deg,#fff 0%,var(--teal-light) 40%,var(--mauve-l) 70%,var(--yellow) 100%);
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+    }
+
+    .gate-sub {
+      font-size:0.82rem; color:rgba(255,255,255,0.28);
+      margin-bottom:2.5rem; line-height:1.7; letter-spacing:0.02em;
+    }
+
+    .gate-input-wrap { position:relative; margin-bottom:1rem; }
+    .gate-input {
+      width:100%; padding:0.85rem 1rem;
+      background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.09);
+      border-radius:4px; color:#fff;
+      font-family:'Nunito',sans-serif; font-size:1rem;
+      outline:none; transition:border-color 0.2s;
+      text-align:center; letter-spacing:0.08em;
+    }
+    .gate-input:focus { border-color:var(--teal-light); }
+    .gate-input.error { border-color:rgba(180,80,80,0.6); animation:shake 0.35s ease; }
+    @keyframes shake {
+      0%,100%{transform:translateX(0)}
+      20%{transform:translateX(-6px)}
+      40%{transform:translateX(6px)}
+      60%{transform:translateX(-4px)}
+      80%{transform:translateX(4px)}
+    }
+
+    .gate-error {
+      font-size:0.75rem; color:rgba(255,140,120,0.7);
+      margin-bottom:1rem; min-height:1rem;
+      letter-spacing:0.05em;
+    }
+
+    .gate-btn {
+      width:100%; padding:0.9rem;
+      background:none; color:var(--yellow);
+      font-family:'Nunito',sans-serif; font-size:0.8rem;
+      font-weight:700; letter-spacing:0.16em; text-transform:uppercase;
+      cursor:pointer; border:1px solid rgba(212,184,74,0.45);
+      border-radius:30px; transition:opacity 0.2s;
+    }
+    .gate-btn:hover { opacity:0.7; }
+  </style>
+</head>
+<body>
+
+  <!-- PASSWORD GATE -->
+  <div id="gate">
+    <div class="gate-blob gate-blob-1"></div>
+    <div class="gate-blob gate-blob-2"></div>
+    <div class="gate-blob gate-blob-3"></div>
+    <div class="gate-card">
+      <span class="gate-logo">Singen3000</span>
+      <h2 class="gate-title">Part Splitter</h2>
+      <p class="gate-sub">Members only · enter the password to continue</p>
+      <div class="gate-input-wrap">
+        <input class="gate-input" id="gateInput" type="password"
+               placeholder="Password" autocomplete="current-password"/>
+      </div>
+      <p class="gate-error" id="gateError"></p>
+      <button class="gate-btn" id="gateBtn">Enter</button>
+    </div>
+  </div>
+
+  <nav>
+    <a class="logo" href="/">Singen3000</a>
+    <a class="nav-back" href="/">Back to site</a>
+  </nav>
+
+  <!-- HERO -->
+  <header class="tool-hero">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+    <div class="hero-content">
+      <p class="hero-eyebrow">Choral tools</p>
+      <h1>Part Splitter</h1>
+      <p class="hero-sub">Upload a choir score PDF. Get individual MIDI files for every voice part — ready for practice, playback, or arrangement.</p>
+    </div>
+  </header>
+
+  <hr class="divider"/>
+
+  <!-- TOOL -->
+  <main class="tool-section">
+
+    <p class="section-label reveal">Upload your score</p>
+
+    <div class="upload-zone reveal" id="dropZone">
+      <input type="file" id="fileInput" accept=".pdf"/>
+      <div class="upload-icon">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="6" width="32" height="36" rx="3" stroke="var(--teal-light)" stroke-width="1.5"/>
+          <line x1="14" y1="16" x2="34" y2="16" stroke="var(--teal-light)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="14" y1="22" x2="34" y2="22" stroke="var(--teal-light)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="14" y1="28" x2="26" y2="28" stroke="var(--teal-light)" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="36" cy="36" r="8" fill="var(--bg)" stroke="var(--yellow)" stroke-width="1.5"/>
+          <line x1="36" y1="32" x2="36" y2="40" stroke="var(--yellow)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="32" y1="36" x2="40" y2="36" stroke="var(--yellow)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="upload-label">Drop your PDF here</p>
+      <p class="upload-hint">or click to browse · <strong>PDF only</strong> · typeset scores work best</p>
+      <p class="file-name" id="fileName"></p>
+    </div>
+
+    <div class="options-row reveal">
+      <div class="option-group">
+        <label>Score format</label>
+        <select id="scoreFormat">
+          <option value="auto">Auto-detect</option>
+          <option value="open">Open score (one voice per staff)</option>
+          <option value="closed">Closed score (two voices per staff)</option>
+        </select>
+      </div>
+      <div class="option-group">
+        <label>Number of parts</label>
+        <select id="partCount">
+          <option value="auto">Auto-detect</option>
+          <option value="4">4 parts (SATB)</option>
+          <option value="5">5 parts</option>
+          <option value="6">6 parts</option>
+          <option value="7">7 parts</option>
+          <option value="8">8 parts (SSAATTBB)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="submit-row reveal">
+      <button class="btn-submit" id="submitBtn" disabled>Split into parts</button>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-area" id="progressArea">
+      <div class="progress-stage" id="stage1">
+        <div class="stage-dot"></div>
+        <span class="stage-label">Reading score with Audiveris</span>
+      </div>
+      <div class="progress-stage" id="stage2">
+        <div class="stage-dot"></div>
+        <span class="stage-label">Converting notation to MusicXML</span>
+      </div>
+      <div class="progress-stage" id="stage3">
+        <div class="stage-dot"></div>
+        <span class="stage-label">Splitting voice parts</span>
+      </div>
+      <div class="progress-stage" id="stage4">
+        <div class="stage-dot"></div>
+        <span class="stage-label">Generating MIDI files</span>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="error-area" id="errorArea">
+      <p id="errorMsg"></p>
+    </div>
+
+    <!-- Results -->
+    <div class="results-area" id="resultsArea">
+      <p class="results-header" id="resultsHeader">Your parts are ready</p>
+      <div class="part-list" id="partList"></div>
+      <a class="btn-download-all" id="downloadAll" href="#" download>Download all as ZIP</a>
+    </div>
+
+  </main>
+
+  <hr class="divider"/>
+
+  <!-- HOW IT WORKS -->
+  <section class="how-section">
+    <p class="section-label reveal">How it works</p>
+    <div class="how-grid">
+      <div class="how-item reveal">
+        <div class="how-num">1</div>
+        <p class="how-title">Upload your PDF</p>
+        <p class="how-body">Works with typeset scores from Sibelius, Finale, MuseScore, or any publisher PDF. Open or closed score, 4–8 parts.</p>
+      </div>
+      <div class="how-item reveal" style="transition-delay:0.1s">
+        <div class="how-num">2</div>
+        <p class="how-title">OMR reads the notation</p>
+        <p class="how-body">Audiveris — a professional optical music recognition engine — converts the printed score to structured MusicXML.</p>
+      </div>
+      <div class="how-item reveal" style="transition-delay:0.2s">
+        <div class="how-num">3</div>
+        <p class="how-title">Download by part</p>
+        <p class="how-body">Each voice part is extracted and exported as its own MIDI file, ready to import into a DAW or send to singers for practice.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>© 2026 <strong>Singen3000</strong> · Berlin</p>
+    <p>Part Splitter · powered by Audiveris &amp; music21</p>
+  </footer>
+
+  <script>
+    // ── Password gate ──────────────────────────────────────────────────────
+    // To change the password:
+    //   1. Pick a strong passphrase
+    //   2. Run: echo -n "your-passphrase" | sha256sum
+    //   3. Paste the resulting hash below
+    const HASH = 'REPLACE_WITH_YOUR_SHA256_HASH';
+    const SESSION_KEY = 's3k_auth';
+
+    const gate      = document.getElementById('gate');
+    const gateInput = document.getElementById('gateInput');
+    const gateBtn   = document.getElementById('gateBtn');
+    const gateError = document.getElementById('gateError');
+
+    async function sha256(str) {
+      const buf = await crypto.subtle.digest(
+        'SHA-256', new TextEncoder().encode(str)
+      );
+      return Array.from(new Uint8Array(buf))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function tryUnlock() {
+      const val = gateInput.value;
+      if (!val) return;
+      const hash = await sha256(val);
+      if (hash === HASH) {
+        sessionStorage.setItem(SESSION_KEY, '1');
+        gate.classList.add('hidden');
+        gateError.textContent = '';
+      } else {
+        gateError.textContent = 'Incorrect password';
+        gateInput.classList.add('error');
+        gateInput.value = '';
+        setTimeout(() => gateInput.classList.remove('error'), 400);
+        gateInput.focus();
+      }
+    }
+
+    // Check if already unlocked this session
+    if (sessionStorage.getItem(SESSION_KEY) === '1') {
+      gate.classList.add('hidden');
+    } else {
+      // Focus input after a moment so autofill can fire first
+      setTimeout(() => gateInput.focus(), 100);
+    }
+
+    gateBtn.addEventListener('click', tryUnlock);
+    gateInput.addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+    // ── End password gate ──────────────────────────────────────────────────
+
+    // ── Reveal on scroll ──
+    const revealEls = document.querySelectorAll('.reveal');
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(e => { if(e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); }});
+    }, { threshold: 0.12 });
+    revealEls.forEach(el => observer.observe(el));
+
+    // ── File input ──
+    const dropZone  = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileName  = document.getElementById('fileName');
+    const submitBtn = document.getElementById('submitBtn');
+
+    let selectedFile = null;
+
+    function setFile(file) {
+      if (!file || file.type !== 'application/pdf') { return; }
+      selectedFile = file;
+      fileName.textContent = file.name;
+      dropZone.classList.add('has-file');
+      submitBtn.disabled = false;
+    }
+
+    fileInput.addEventListener('change', () => { if(fileInput.files[0]) setFile(fileInput.files[0]); });
+
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault(); dropZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if(file) setFile(file);
+    });
+
+    // ── Progress helpers ──
+    const progressArea = document.getElementById('progressArea');
+    const progressBar  = document.getElementById('progressBar');
+    const errorArea    = document.getElementById('errorArea');
+    const errorMsg     = document.getElementById('errorMsg');
+    const resultsArea  = document.getElementById('resultsArea');
+    const partList     = document.getElementById('partList');
+    const downloadAll  = document.getElementById('downloadAll');
+
+    const stages = [
+      document.getElementById('stage1'),
+      document.getElementById('stage2'),
+      document.getElementById('stage3'),
+      document.getElementById('stage4'),
+    ];
+
+    function resetUI() {
+      progressArea.classList.remove('visible');
+      errorArea.classList.remove('visible');
+      resultsArea.classList.remove('visible');
+      stages.forEach(s => { s.classList.remove('active','done'); });
+      progressBar.style.width = '0%';
+      partList.innerHTML = '';
+    }
+
+    function activateStage(n) {
+      stages.forEach((s, i) => {
+        if(i < n)  { s.classList.remove('active'); s.classList.add('done'); }
+        if(i === n){ s.classList.add('active'); s.classList.remove('done'); }
+        if(i > n)  { s.classList.remove('active','done'); }
+      });
+      progressBar.style.width = ((n+1)/stages.length * 100) + '%';
+    }
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorArea.classList.add('visible');
+      stages.forEach(s => s.classList.remove('active'));
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Split into parts';
+    }
+
+    // ── Submit ──
+    submitBtn.addEventListener('click', async () => {
+      if(!selectedFile) return;
+      resetUI();
+      progressArea.classList.add('visible');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Processing…';
+
+      const API = ''; // set to your Fly.io backend URL e.g. https://choralsplit.fly.dev
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('score_format', document.getElementById('scoreFormat').value);
+      formData.append('part_count', document.getElementById('partCount').value);
+
+      try {
+        activateStage(0);
+
+        const res = await fetch(`${API}/api/split`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if(!res.ok) {
+          const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+          throw new Error(err.detail || `Server error ${res.status}`);
+        }
+
+        activateStage(1);
+        await sleep(400);
+        activateStage(2);
+        await sleep(400);
+        activateStage(3);
+
+        const data = await res.json();
+        // expected: { parts: [{ name, midi_url, note_count }], zip_url }
+
+        stages.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
+        progressBar.style.width = '100%';
+
+        renderResults(data, API);
+
+      } catch(err) {
+        showError(err.message || 'Something went wrong. Check the score is a clean typeset PDF and try again.');
+      }
+    });
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function renderResults(data, base) {
+      document.getElementById('resultsHeader').textContent =
+        `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
+
+      data.parts.forEach(part => {
+        const item = document.createElement('div');
+        item.className = 'part-item';
+        item.innerHTML = `
+          <div>
+            <div class="part-name">${escHtml(part.name)}</div>
+            <div class="part-meta">${part.note_count ?? '—'} notes</div>
+          </div>
+          <a class="btn-download" href="${base}${escHtml(part.midi_url)}" download>Download</a>
+        `;
+        partList.appendChild(item);
+      });
+
+      downloadAll.href = `${base}${data.zip_url}`;
+      resultsArea.classList.add('visible');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Split another score';
+      selectedFile = null;
+      dropZone.classList.remove('has-file');
+      fileName.textContent = '';
+      fileInput.value = '';
+    }
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+  </script>
+</body>
+</html>
