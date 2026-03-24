@@ -1,0 +1,26 @@
+# fly.toml — ChoralSplit backend
+# Deploy with: fly launch (first time) or fly deploy (updates)
+
+app = "choralsplit"          # change to your chosen app name
+primary_region = "ams"       # Amsterdam — close to Berlin
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true   # scale to zero when idle
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 10
+    soft_limit = 5
+
+[[vm]]
+  size = "performance-1x"     # 1 CPU, 2 GB RAM — minimum for Audiveris
