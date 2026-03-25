@@ -2,6 +2,7 @@
 ChoralSplit backend — FastAPI + Audiveris + music21
 """
 import base64
+import json
 import os
 import shutil
 import subprocess
@@ -69,10 +70,10 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
 
 # ── music21 splitting ────────────────────────────────────────────────────────
 
-def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | None) -> dict:
+def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | None, key_changes_text: str | None = None) -> dict:
     """
     Parse MusicXML with music21, strip dynamics, optionally override tempo,
-    split by part, write one MIDI per part + an all-parts MIDI.
+    apply key corrections, split by part, write one MIDI per part + an all-parts MIDI.
     Returns a dict with 'parts' list and 'all_midi_path'.
     """
     import music21  # imported here so startup is fast if music21 is missing
@@ -87,6 +88,11 @@ def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | No
     for el in score.recurse():
         if isinstance(el, music21.dynamics.Dynamic):
             el.activeSite.remove(el)
+
+    # Apply key change corrections if provided
+    if key_changes_text:
+        key_instructions = parse_key_changes_with_llm(key_changes_text)
+        apply_key_changes(score, key_instructions)
 
     # Override tempo if the user specified one
     if bpm:
@@ -219,6 +225,71 @@ def _make_click_track_for_part(source_part) -> "music21.stream.Part":
     return click
 
 
+# ── Key change correction (via Anthropic Haiku) ─────────────────────────────
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def parse_key_changes_with_llm(user_text: str) -> list[dict]:
+    """Use Claude Haiku to parse natural-language key change descriptions
+    into structured [{bar, key}] instructions."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is not configured on the server.")
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    response = client.messages.create(
+        model="claude-haiku-4-20250414",
+        max_tokens=512,
+        messages=[{"role": "user", "content": user_text}],
+        system=(
+            "You are a music theory assistant. The user will describe key signatures "
+            "and key changes in a choral score. Parse their description into a JSON "
+            "array of objects with exactly two fields:\n"
+            "  - \"bar\": integer bar/measure number (1-based)\n"
+            "  - \"key\": string key name that music21 understands, e.g. \"B- major\" "
+            "(for Bb major), \"f# minor\", \"D major\", \"e- minor\" etc.\n"
+            "Use music21 key conventions: sharps = '#', flats = '-', "
+            "e.g. Bb = 'B-', Eb = 'E-', F# = 'F#'.\n"
+            "If the user says 'starts in X' without a bar number, use bar 1.\n"
+            "Return ONLY the JSON array, nothing else."
+        ),
+    )
+
+    raw = response.content[0].text.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    return json.loads(raw)
+
+
+def apply_key_changes(score, key_instructions: list[dict]):
+    """Apply parsed key change instructions to a music21 score.
+    Each instruction is {bar: int, key: str}."""
+    import music21
+
+    for instr in key_instructions:
+        bar_num = instr["bar"]
+        key_str = instr["key"]
+        new_key = music21.key.Key(key_str)
+
+        for part in score.parts:
+            # Find the target measure
+            for measure in part.getElementsByClass("Measure"):
+                if measure.number == bar_num:
+                    # Remove any existing key signatures in this measure
+                    for ks in measure.getElementsByClass("KeySignature"):
+                        measure.remove(ks)
+                    measure.insert(0, new_key)
+                    break
+
+    # Re-spell accidentals based on the corrected key signatures
+    for part in score.parts:
+        part.makeAccidentals(inPlace=True, overrideStatus=True)
+
+
 # ── ZIP helper ───────────────────────────────────────────────────────────────
 
 def make_zip(midi_files: list[Path], zip_path: Path):
@@ -256,6 +327,7 @@ async def split_score(
     score_format: str = Form("auto"),
     part_count: str = Form("auto"),
     tempo_bpm: str = Form(""),
+    key_changes: str = Form(""),
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, detail="Only PDF files are accepted.")
@@ -282,7 +354,10 @@ async def split_score(
         midi_out = job_dir / "midi"
         midi_out.mkdir()
         bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
-        split_result = split_parts(xml_path, midi_out, part_count, bpm)
+        split_result = split_parts(
+            xml_path, midi_out, part_count, bpm,
+            key_changes.strip() if key_changes else None,
+        )
         parts = split_result["parts"]
         all_midi_path = split_result["all_midi_path"]
 
