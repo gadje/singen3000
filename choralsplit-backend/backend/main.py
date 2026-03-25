@@ -99,6 +99,9 @@ def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | No
             part.insert(0, music21.tempo.MetronomeMark(number=bpm))
 
     # Write full score (all parts) as MIDI
+    # Add metronome click track to the full score
+    click_part = _make_click_track(score)
+    score.insert(0, click_part)
     all_midi_path = output_dir / "All parts.mid"
     score.write("midi", fp=str(all_midi_path))
 
@@ -120,9 +123,10 @@ def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | No
         midi_filename = f"{safe}.mid"
         midi_path = output_dir / midi_filename
 
-        # Wrap in a fresh Score so it exports cleanly
+        # Wrap in a fresh Score with the click track
         single = music21.stream.Score()
         single.append(part)
+        single.insert(0, _make_click_track_for_part(part))
         single.write("midi", fp=str(midi_path))
 
         note_count = sum(
@@ -155,6 +159,64 @@ def _part_name(part, index: int) -> str:
 def _safe_filename(name: str) -> str:
     """Strip characters that are unsafe in filenames."""
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip()
+
+
+# ── Click track (woodblock metronome) ────────────────────────────────────────
+
+# MIDI percussion: High Wood Block = 76, Low Wood Block = 77
+# We use channel 10 (percussion) via music21's Unpitched percussion support.
+CLICK_BEAT1_PITCH = 76   # high wood block – emphasis on beat 1
+CLICK_BEATN_PITCH = 77   # low wood block  – other beats
+CLICK_BEAT1_VEL = 60     # subtle but audible
+CLICK_BEATN_VEL = 40     # quieter for non-downbeats
+
+
+def _make_click_track(score) -> "music21.stream.Part":
+    """Build a percussion click track spanning the full score, using the
+    first part's time signatures to determine beats per measure."""
+    return _make_click_track_for_part(score.parts[0])
+
+
+def _make_click_track_for_part(source_part) -> "music21.stream.Part":
+    """Build a woodblock click track matching the measures/time-sigs of a part."""
+    import music21
+
+    click = music21.stream.Part()
+    click.partName = "Click"
+    # Set to a Woodblock instrument so music21 routes it to MIDI channel 10
+    wb = music21.instrument.Woodblock()
+    click.insert(0, wb)
+
+    for measure in source_part.getElementsByClass("Measure"):
+        click_m = music21.stream.Measure(number=measure.number)
+        click_m.offset = measure.offset
+
+        # Get the active time signature for this measure
+        ts = measure.getContextByClass(music21.meter.TimeSignature)
+        if ts is None:
+            ts = music21.meter.TimeSignature("4/4")
+
+        beats = ts.numerator
+        beat_dur = music21.duration.Duration(4.0 / ts.denominator)
+
+        for beat_num in range(beats):
+            if beat_num == 0:
+                pitch = CLICK_BEAT1_PITCH
+                vel = CLICK_BEAT1_VEL
+            else:
+                pitch = CLICK_BEATN_PITCH
+                vel = CLICK_BEATN_VEL
+
+            n = music21.note.Unpitched()
+            n.midi = pitch
+            n.duration = beat_dur
+            n.volume = music21.volume.Volume(velocity=vel)
+            n.storedInstrument = wb
+            click_m.insert(beat_dur.quarterLength * beat_num, n)
+
+        click.insert(measure.offset, click_m)
+
+    return click
 
 
 # ── ZIP helper ───────────────────────────────────────────────────────────────
