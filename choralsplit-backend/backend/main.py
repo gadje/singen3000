@@ -442,8 +442,8 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 
 def parse_corrections_with_llm(user_text: str) -> list[dict]:
-    """Use Claude Haiku to parse natural-language score correction descriptions
-    into structured instructions for key, tempo, and time signature changes."""
+    """Use Claude Haiku to parse natural-language score corrections
+    into structured instructions (key, tempo, time sig, and note-level edits)."""
     if not ANTHROPIC_API_KEY:
         raise RuntimeError(
             "ANTHROPIC_API_KEY is not configured on the server.")
@@ -453,74 +453,195 @@ def parse_corrections_with_llm(user_text: str) -> list[dict]:
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
+        max_tokens=2048,
         messages=[{"role": "user", "content": user_text}],
         system=(
             "You are a music theory assistant. The user will describe corrections "
-            "to a choral score — key changes, tempo changes, and/or time signature "
-            "changes. Parse their description into a JSON array of objects.\n\n"
+            "to a choral score. Parse their description into a JSON array of objects.\n\n"
             "Each object must have:\n"
-            "  - \"bar\": integer bar/measure number (1-based). "
-            "If the user says 'starts at' or 'from the beginning' without a bar number, use 1.\n"
-            "  - \"type\": one of \"key\", \"tempo\", or \"time_signature\"\n"
-            "  - \"value\": the value to set, formatted as follows:\n\n"
-            "For type=\"key\": a music21 key string.\n"
-            "  sharps = '#', flats = '-'. "
-            "  e.g. Bb major = \"B- major\", F# minor = \"f# minor\", "
-            "Eb minor = \"e- minor\", D major = \"D major\".\n\n"
-            "For type=\"tempo\": an integer BPM, e.g. 120\n\n"
-            "For type=\"time_signature\": a time signature string, e.g. \"3/4\", \"6/8\"\n\n"
-            "Examples:\n"
-            "  User: 'Starts in Bb major at 100bpm, 3/4 time. Modulates to D major at bar 33. "
-            "Tempo change to 80bpm at bar 50.'\n"
-            "  Output: [{\"bar\":1,\"type\":\"key\",\"value\":\"B- major\"}, "
-            "{\"bar\":1,\"type\":\"tempo\",\"value\":100}, "
-            "{\"bar\":1,\"type\":\"time_signature\",\"value\":\"3/4\"}, "
-            "{\"bar\":33,\"type\":\"key\",\"value\":\"D major\"}, "
-            "{\"bar\":50,\"type\":\"tempo\",\"value\":80}]\n\n"
+            "  - \"bar\": integer bar/measure number (1-based).\n"
+            "  - \"part\": which voice/part to edit. Use a string like \"Soprano\", "
+            "\"Alto\", \"Tenor\", \"Bass\", or positional terms: \"top\" (first part), "
+            "\"bottom\" (last part), or a 1-based integer index. "
+            "Use \"all\" to apply to every part (for key/tempo/time_sig changes).\n"
+            "  - \"type\": one of:\n"
+            "      \"key\", \"tempo\", \"time_signature\", \"replace_notes\", \"delete_notes\"\n"
+            "  - \"value\": depends on type (see below).\n\n"
+            "TYPE DETAILS:\n\n"
+            "type=\"key\": value is a music21 key string. "
+            "sharps='#', flats='-'. e.g. Bb major = \"B- major\", "
+            "F# minor = \"f# minor\". part should be \"all\".\n\n"
+            "type=\"tempo\": value is an integer BPM. part should be \"all\".\n\n"
+            "type=\"time_signature\": value is e.g. \"3/4\". part should be \"all\".\n\n"
+            "type=\"replace_notes\": value is an array of note/rest objects that "
+            "REPLACE the entire contents of that bar in that part. Each object:\n"
+            "  - For a single note: {\"pitch\": \"C4\", \"duration\": 2.0}\n"
+            "  - For a chord: {\"pitches\": [\"E2\", \"B2\"], \"duration\": 2.0}\n"
+            "  - For a rest: {\"rest\": true, \"duration\": 1.0}\n"
+            "Duration is in quarter-note lengths: whole=4.0, half/minim=2.0, "
+            "quarter/crotchet=1.0, eighth/quaver=0.5, dotted half=3.0, dotted quarter=1.5.\n"
+            "Pitches use scientific notation: C4=middle C, B2=low B, F#5, Bb3 etc.\n"
+            "Use '#' for sharps and 'b' for flats in pitch names (NOT '-').\n\n"
+            "type=\"delete_notes\": value is null. Replaces the bar with a whole rest.\n\n"
+            "PART NAME MAPPING:\n"
+            "  'top voice'/'top part'/'voice 1' -> \"top\"\n"
+            "  'bottom voice'/'bottom part'/'last voice' -> \"bottom\"\n"
+            "  'soprano'/'S' -> \"Soprano\"\n"
+            "  'alto'/'A' -> \"Alto\"\n"
+            "  'tenor'/'T' -> \"Tenor\"\n"
+            "  'bass'/'B'/'baritone' -> \"Bass\"\n\n"
+            "EXAMPLES:\n"
+            "User: 'Bar 14 in bottom voice should be low E and B as a minim "
+            "followed by a crotchet rest'\n"
+            "Output: [{\"bar\":14,\"part\":\"bottom\",\"type\":\"replace_notes\","
+            "\"value\":[{\"pitches\":[\"E2\",\"B2\"],\"duration\":2.0},"
+            "{\"rest\":true,\"duration\":1.0}]}]\n\n"
+            "User: 'Bar 8 soprano: D5 crotchet, E5 crotchet, F#5 minim'\n"
+            "Output: [{\"bar\":8,\"part\":\"Soprano\",\"type\":\"replace_notes\","
+            "\"value\":[{\"pitch\":\"D5\",\"duration\":1.0},"
+            "{\"pitch\":\"E5\",\"duration\":1.0},"
+            "{\"pitch\":\"F#5\",\"duration\":2.0}]}]\n\n"
+            "User: 'Starts in Bb major at 100bpm, 3/4 time'\n"
+            "Output: [{\"bar\":1,\"part\":\"all\",\"type\":\"key\",\"value\":\"B- major\"},"
+            "{\"bar\":1,\"part\":\"all\",\"type\":\"tempo\",\"value\":100},"
+            "{\"bar\":1,\"part\":\"all\",\"type\":\"time_signature\",\"value\":\"3/4\"}]\n\n"
+            "If nothing can be parsed, return [].\n"
             "Return ONLY the JSON array, nothing else."
         ),
     )
 
+    if not response.content:
+        raise RuntimeError(
+            f"The corrections assistant returned no content "
+            f"(stop_reason: {response.stop_reason!r}). Try rephrasing."
+        )
+
     raw = response.content[0].text.strip()
-    # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    return json.loads(raw)
+    if not raw:
+        raise RuntimeError(
+            "The corrections assistant returned an empty response. "
+            "Try rephrasing your corrections."
+        )
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Could not parse corrections as JSON: {exc}\nRaw: {raw[:300]}"
+        ) from exc
+    if isinstance(parsed, dict):
+        parsed = next((v for v in parsed.values()
+                      if isinstance(v, list)), parsed)
+    if not parsed:
+        raise RuntimeError(
+            "No corrections could be parsed from your input. "
+            "Try being more specific, e.g. 'Bar 14 bass: E2 and B2 minim, crotchet rest'"
+        )
+    return parsed
+
+
+def _resolve_part(score, part_ref) -> list:
+    """Resolve a part reference ('all', 'top', 'bottom', name, or index) to a
+    list of music21 Part objects."""
+    parts = list(score.parts)
+    if not parts:
+        return []
+    if part_ref == "all":
+        return parts
+    if part_ref == "top":
+        return [parts[0]]
+    if part_ref == "bottom":
+        return [parts[-1]]
+    if isinstance(part_ref, int):
+        idx = part_ref - 1  # 1-based -> 0-based
+        return [parts[idx]] if 0 <= idx < len(parts) else [parts[-1]]
+    # Try matching by name (case-insensitive)
+    ref_lower = str(part_ref).lower()
+    for p in parts:
+        pname = ""
+        try:
+            instr = p.getInstrument()
+            if instr and instr.partName:
+                pname = instr.partName
+        except Exception:
+            pass
+        if not pname:
+            pname = p.id or ""
+        if ref_lower in pname.lower():
+            return [p]
+    # Fallback: return last part (common "bass" default)
+    return [parts[-1]]
 
 
 def apply_corrections(score, instructions: list[dict]):
     """Apply parsed correction instructions to a music21 score.
-    Each instruction is {bar: int, type: 'key'|'tempo'|'time_signature', value: ...}."""
+    Supports key, tempo, time_signature, replace_notes, and delete_notes."""
     import music21
 
     for instr in instructions:
         bar_num = instr["bar"]
         change_type = instr["type"]
-        value = instr["value"]
+        value = instr.get("value")
+        part_ref = instr.get("part", "all")
+        target_parts = _resolve_part(score, part_ref)
 
-        for part in score.parts:
+        for part in target_parts:
             for measure in part.getElementsByClass("Measure"):
-                if measure.number == bar_num:
-                    if change_type == "key":
-                        for ks in measure.getElementsByClass("KeySignature"):
-                            measure.remove(ks)
-                        measure.insert(0, music21.key.Key(value))
+                if measure.number != bar_num:
+                    continue
 
-                    elif change_type == "tempo":
-                        for mm in measure.getElementsByClass("MetronomeMark"):
-                            measure.remove(mm)
-                        measure.insert(
-                            0, music21.tempo.MetronomeMark(number=int(value)))
+                if change_type == "key":
+                    for ks in measure.getElementsByClass("KeySignature"):
+                        measure.remove(ks)
+                    measure.insert(0, music21.key.Key(value))
 
-                    elif change_type == "time_signature":
-                        for ts in measure.getElementsByClass("TimeSignature"):
-                            measure.remove(ts)
-                        measure.insert(0, music21.meter.TimeSignature(value))
+                elif change_type == "tempo":
+                    for mm in measure.getElementsByClass("MetronomeMark"):
+                        measure.remove(mm)
+                    measure.insert(
+                        0, music21.tempo.MetronomeMark(number=int(value)))
 
-                    break
+                elif change_type == "time_signature":
+                    for ts in measure.getElementsByClass("TimeSignature"):
+                        measure.remove(ts)
+                    measure.insert(0, music21.meter.TimeSignature(value))
 
-    # Re-spell accidentals based on the corrected key signatures
+                elif change_type == "delete_notes":
+                    # Remove all notes/rests, insert a whole rest
+                    for el in list(measure.notesAndRests):
+                        measure.remove(el)
+                    measure.insert(0, music21.note.Rest(quarterLength=4.0))
+
+                elif change_type == "replace_notes":
+                    # Remove existing notes/rests
+                    for el in list(measure.notesAndRests):
+                        measure.remove(el)
+                    offset = 0.0
+                    for item in value:
+                        dur = float(item.get("duration", 1.0))
+                        if item.get("rest"):
+                            n = music21.note.Rest(quarterLength=dur)
+                        elif "pitches" in item:
+                            # Chord
+                            n = music21.chord.Chord(
+                                item["pitches"],
+                                quarterLength=dur,
+                            )
+                        elif "pitch" in item:
+                            n = music21.note.Note(
+                                item["pitch"],
+                                quarterLength=dur,
+                            )
+                        else:
+                            offset += dur
+                            continue
+                        measure.insert(offset, n)
+                        offset += dur
+
+                break  # found the bar, move to next instruction
+
+    # Re-spell accidentals if key changes were made
     has_key_changes = any(i["type"] == "key" for i in instructions)
     if has_key_changes:
         for part in score.parts:
