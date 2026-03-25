@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fluid-soundfont-gm \
     imagemagick \
     ghostscript \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Use tessdata_best for higher accuracy OCR
