@@ -4,6 +4,7 @@ ChoralSplit backend — FastAPI + Audiveris + music21
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -60,13 +61,16 @@ def preprocess_pdf(pdf_path: Path, deskew: bool = False, to_bw: bool = False) ->
 
 # ── Audiveris ────────────────────────────────────────────────────────────────
 
-def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
-    """Run Audiveris in batch mode; return list of MusicXML output files."""
+def run_audiveris(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[dict]]:
+    """Run Audiveris in batch mode.
+    Returns (xml_files, error_bars) where error_bars is a list of
+    {bar: int, message: str} parsed from Audiveris warnings/errors."""
     cmd = [
         AUDIVERIS_CMD,
         "-batch",
         "-export",
         "-option", "org.audiveris.omr.text.tesseract.TesseractOCR.useOCR=false",
+        "-option", "org.audiveris.omr.sheet.ProcessingSwitches.dynamics=false",
         "-output", str(output_dir),
         "--",
         str(pdf_path),
@@ -89,7 +93,42 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
             "Audiveris completed but produced no MusicXML output. "
             "The score may be a scan rather than typeset, or the PDF is corrupt."
         )
-    return xml_files
+
+    # Parse log for measure-level warnings/errors
+    full_log = result.stdout + result.stderr
+    for lf in output_dir.rglob("*.log"):
+        try:
+            full_log += lf.read_text(errors="ignore")
+        except Exception:
+            pass
+    error_bars = _parse_audiveris_error_bars(full_log)
+    return xml_files, error_bars
+
+
+def _parse_audiveris_error_bars(log_text: str) -> list[dict]:
+    """Extract bar numbers with WARN/ERROR from Audiveris logs."""
+    issues: list[dict] = []
+    seen: set[tuple] = set()
+    for line in log_text.splitlines():
+        if not re.search(r'\bWARN|\bERROR', line, re.IGNORECASE):
+            continue
+        m = re.search(r'[Mm]easure\s*#?\s*(\d+)', line)
+        if not m:
+            m = re.search(r'\bbar\s+#?(\d+)\b', line, re.IGNORECASE)
+        if not m:
+            continue
+        bar_num = int(m.group(1))
+        # Trim to just the meaningful part of the message
+        msg = line.strip()
+        for sep in (' - ', '] '):
+            if sep in msg:
+                msg = msg.rsplit(sep, 1)[-1]
+        msg = msg[:120]
+        key = (bar_num, msg[:40])
+        if key not in seen:
+            seen.add(key)
+            issues.append({"bar": bar_num, "message": msg})
+    return sorted(issues, key=lambda x: x["bar"])
 
 
 def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
@@ -110,8 +149,11 @@ def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
     return pages
 
 
-def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
-    """Render MusicXML to per-page SVG files using Verovio."""
+def render_musicxml_svg(
+    xml_path: Path, output_dir: Path, error_bars: list[int] | None = None,
+) -> list[Path]:
+    """Render MusicXML to per-page SVG files using Verovio.
+    If error_bars is provided, measures with those numbers get a red highlight."""
     import verovio
     vrv = verovio.toolkit()
     vrv.setOptions(json.dumps({
@@ -125,12 +167,88 @@ def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
         "svgViewBox": True,
     }))
     vrv.loadFile(str(xml_path))
+    error_set = set(error_bars or [])
     pages = []
     for i in range(1, vrv.getPageCount() + 1):
+        svg_text = vrv.renderToSVG(i)
+        if error_set:
+            svg_text = _highlight_error_bars_in_svg(svg_text, error_set)
         svg_path = output_dir / f"score-{i:02d}.svg"
-        svg_path.write_text(vrv.renderToSVG(i))
+        svg_path.write_text(svg_text)
         pages.append(svg_path)
     return pages
+
+
+def _highlight_error_bars_in_svg(svg_text: str, error_bars: set[int]) -> str:
+    """Inject semi-transparent red rectangles behind measures flagged with errors.
+    Verovio emits <g class="measure" ...> elements with an id like 'measure-MxxxxxxN'
+    where N encodes the measure number."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(svg_text)
+    except ET.ParseError:
+        return svg_text  # don't break if SVG is malformed
+
+    ns = {'svg': 'http://www.w3.org/2000/svg'}
+    ET.register_namespace('', 'http://www.w3.org/2000/svg')
+    ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
+
+    for g in root.iter('{http://www.w3.org/2000/svg}g'):
+        cls = g.get('class', '')
+        if 'measure' not in cls:
+            continue
+        # Try to extract measure number from id or from a data attribute
+        gid = g.get('id', '')
+        m = re.search(r'(\d+)$', gid)
+        if not m:
+            # Try Verovio's newer naming
+            m = re.search(r'measure-(\d+)', gid)
+        if not m:
+            continue
+        measure_num = int(m.group(1))
+        if measure_num not in error_bars:
+            continue
+        # Compute bounding box from child elements
+        bbox = _svg_group_bbox(g)
+        if bbox is None:
+            continue
+        x, y, w, h = bbox
+        rect = ET.SubElement(g, '{http://www.w3.org/2000/svg}rect')
+        rect.set('x', str(x - 2))
+        rect.set('y', str(y - 2))
+        rect.set('width', str(w + 4))
+        rect.set('height', str(h + 4))
+        rect.set('fill', 'rgba(255,60,60,0.18)')
+        rect.set('stroke', '#ff3c3c')
+        rect.set('stroke-width', '1.5')
+        rect.set('rx', '3')
+        # Insert as first child so it sits behind the notes
+        g.insert(0, rect)
+
+    return ET.tostring(root, encoding='unicode')
+
+
+def _svg_group_bbox(g) -> tuple[float, float, float, float] | None:
+    """Rough bounding box from x/y/width/height attrs of children."""
+    xs, ys, x2s, y2s = [], [], [], []
+    for el in g.iter():
+        try:
+            ex = float(el.get('x', 'nan'))
+            ey = float(el.get('y', 'nan'))
+            xs.append(ex)
+            ys.append(ey)
+            ew = float(el.get('width', '0'))
+            eh = float(el.get('height', '0'))
+            x2s.append(ex + ew)
+            y2s.append(ey + eh)
+        except (ValueError, TypeError):
+            continue
+    if not xs:
+        return None
+    min_x, min_y = min(xs), min(ys)
+    max_x = max(x2s) if x2s else max(xs)
+    max_y = max(y2s) if y2s else max(ys)
+    return (min_x, min_y, max_x - min_x, max_y - min_y)
 
 
 # ── music21 splitting ────────────────────────────────────────────────────────
@@ -334,7 +452,7 @@ def parse_corrections_with_llm(user_text: str) -> list[dict]:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     response = client.messages.create(
-        model="claude-3-5-haiku-20241022",
+        model="claude-haiku-4-20250414",
         max_tokens=1024,
         messages=[{"role": "user", "content": user_text}],
         system=(
@@ -481,17 +599,20 @@ async def split_score(
         # 3. Run Audiveris
         audiveris_out = job_dir / "audiveris"
         audiveris_out.mkdir()
-        xml_files = run_audiveris(pdf_path, audiveris_out)
+        xml_files, error_bars = run_audiveris(pdf_path, audiveris_out)
         # take first (multi-page scores may produce one file)
         xml_path = xml_files[0]
 
         # Render score preview: original PDF pages as JPEGs + Verovio SVGs
+        error_bar_nums = [e["bar"] for e in error_bars]
         preview = None
         try:
             preview_dir = job_dir / "preview"
             preview_dir.mkdir()
             pdf_page_paths = render_pdf_pages(pdf_path, preview_dir)
-            svg_page_paths = render_musicxml_svg(xml_path, preview_dir)
+            svg_page_paths = render_musicxml_svg(
+                xml_path, preview_dir, error_bars=error_bar_nums,
+            )
             preview = {
                 "pdf_pages": [f"/files/{job_id}/preview/{p.name}" for p in pdf_page_paths],
                 "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
@@ -499,7 +620,7 @@ async def split_score(
         except Exception:
             pass  # preview is optional; never break the main pipeline
 
-        # 3. Split parts with music21
+        # 4. Split parts with music21
         midi_out = job_dir / "midi"
         midi_out.mkdir()
         bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
@@ -526,6 +647,7 @@ async def split_score(
 
         # 6. Return JSON with download URLs
         return {
+            "job_id": job_id,
             "parts": [
                 {
                     "name": p["name"],
@@ -537,6 +659,7 @@ async def split_score(
             "all_mp3_url": f"/files/{job_id}/midi/{all_mp3_path.name}",
             "zip_url": f"/files/{job_id}/all_parts.zip",
             "preview": preview,
+            "error_bars": error_bars,
         }
 
     except RuntimeError as exc:
@@ -544,6 +667,75 @@ async def split_score(
         raise HTTPException(422, detail=str(exc))
     except Exception as exc:
         shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(500, detail=f"Unexpected error: {exc}")
+
+
+@app.post("/api/reprocess")
+async def reprocess_score(
+    job_id: str = Form(...),
+    corrections: str = Form(""),
+    tempo_bpm: str = Form(""),
+    part_count: str = Form("auto"),
+):
+    """Re-run music21 splitting on an existing job's MusicXML with new corrections.
+    Skips Audiveris entirely — just re-processes the existing XML."""
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.exists():
+        raise HTTPException(
+            404, detail="Job not found — the server may have restarted. Please re-upload the PDF.")
+
+    audiveris_out = job_dir / "audiveris"
+    xml_files = list(audiveris_out.rglob("*.xml")) + \
+        list(audiveris_out.rglob("*.mxl"))
+    if not xml_files:
+        raise HTTPException(
+            404, detail="Original MusicXML not found. Please re-upload the PDF.")
+    xml_path = xml_files[0]
+
+    try:
+        # Clear old MIDI/MP3 output
+        midi_out = job_dir / "midi"
+        if midi_out.exists():
+            shutil.rmtree(midi_out)
+        midi_out.mkdir()
+
+        bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
+        split_result = split_parts(
+            xml_path, midi_out, part_count, bpm,
+            corrections.strip() if corrections else None,
+        )
+        parts = split_result["parts"]
+        all_midi_path = split_result["all_midi_path"]
+
+        for p in parts:
+            p["mp3_path"] = midi_to_mp3(p["midi_path"])
+        all_mp3_path = midi_to_mp3(all_midi_path)
+
+        zip_path = job_dir / "all_parts.zip"
+        all_files = (
+            [p["midi_path"] for p in parts]
+            + [p["mp3_path"] for p in parts]
+            + [all_midi_path, all_mp3_path]
+        )
+        make_zip(all_files, zip_path)
+
+        return {
+            "job_id": job_id,
+            "parts": [
+                {
+                    "name": p["name"],
+                    "mp3_url": f"/files/{job_id}/midi/{p['mp3_path'].name}",
+                    "note_count": p["note_count"],
+                }
+                for p in parts
+            ],
+            "all_mp3_url": f"/files/{job_id}/midi/{all_mp3_path.name}",
+            "zip_url": f"/files/{job_id}/all_parts.zip",
+        }
+
+    except RuntimeError as exc:
+        raise HTTPException(422, detail=str(exc))
+    except Exception as exc:
         raise HTTPException(500, detail=f"Unexpected error: {exc}")
 
 

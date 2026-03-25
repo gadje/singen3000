@@ -600,6 +600,23 @@
 
       <div class="part-list" id="partList"></div>
       <a class="btn-download-all" id="downloadAll" href="#" download>Download all as ZIP</a>
+
+      <!-- Error bars & re-process -->
+      <div id="reprocessPanel" style="display:none; margin-top:2rem; padding:1.2rem 1.4rem; border:1px solid rgba(212,184,74,0.25); border-radius:6px; background:rgba(212,184,74,0.05);">
+        <p style="color:var(--yellow-l); font-size:0.85rem; font-weight:700; letter-spacing:0.05em; margin-bottom:0.8rem;">&#9888;&#65039; Audiveris flagged issues</p>
+        <ul id="errorBarsList" style="margin:0 0 1.2rem 1rem; font-size:0.82rem; color:rgba(255,255,255,0.55); line-height:1.7;"></ul>
+        <p style="font-size:0.78rem; color:rgba(255,255,255,0.35); margin-bottom:1rem;">Describe corrections below and click <strong style="color:rgba(255,255,255,0.6);">Re-process</strong> to regenerate the audio without re-running Audiveris.</p>
+        <label style="display:block; font-size:0.75rem; color:rgba(255,255,255,0.4); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:0.4rem;">Corrections</label>
+        <textarea id="reprocessCorrections" rows="3" placeholder="e.g. Bar 12 should be in 3/4 time. Key change to Bb major at bar 25." style="width:100%; padding:0.7rem 0.9rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:3px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.9rem; outline:none; resize:vertical; margin-bottom:0.8rem;"></textarea>
+        <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <label style="font-size:0.75rem; color:rgba(255,255,255,0.4); white-space:nowrap;">Tempo BPM</label>
+            <input type="number" id="reprocessBpm" min="20" max="300" placeholder="76" style="width:70px; padding:0.4rem 0.6rem; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:3px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.9rem; outline:none;"/>
+          </div>
+          <button id="reprocessBtn" style="padding:0.55rem 1.4rem; background:var(--yellow); color:#1a1500; font-family:'Nunito',sans-serif; font-weight:700; font-size:0.85rem; border:none; border-radius:4px; cursor:pointer; transition:opacity 0.2s;">Re-process</button>
+        </div>
+        <p id="reprocessStatus" style="margin-top:0.8rem; font-size:0.82rem; color:var(--teal-light); display:none;"></p>
+      </div>
     </div>
 
   </main>
@@ -698,6 +715,7 @@
     const submitBtn = document.getElementById('submitBtn');
 
     let selectedFile = null;
+    let currentJobId = null;
 
     function setFile(file) {
       if (!file || file.type !== 'application/pdf') { return; }
@@ -743,6 +761,12 @@
       document.getElementById('previewSection').style.display = 'none';
       document.getElementById('previewOrigPages').innerHTML = '';
       document.getElementById('previewSvgPages').innerHTML = '';
+      document.getElementById('reprocessPanel').style.display = 'none';
+      document.getElementById('errorBarsList').innerHTML = '';
+      document.getElementById('reprocessCorrections').value = '';
+      document.getElementById('reprocessBpm').value = '';
+      const rs = document.getElementById('reprocessStatus');
+      rs.style.display = 'none'; rs.textContent = '';
     }
 
     function activateStage(n) {
@@ -873,10 +897,30 @@
     }
 
     function renderResults(data, base) {
+      currentJobId = data.job_id || null;
       document.getElementById('resultsHeader').textContent =
         `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
 
       renderPreview(data.preview, base);
+
+      // Show error bars + reprocess panel
+      const errors = data.error_bars || [];
+      const panel = document.getElementById('reprocessPanel');
+      const list = document.getElementById('errorBarsList');
+      list.innerHTML = '';
+      if (errors.length > 0) {
+        errors.forEach(e => {
+          const li = document.createElement('li');
+          li.textContent = `Bar ${e.bar}: ${e.message}`;
+          list.appendChild(li);
+        });
+        panel.style.display = 'block';
+      } else if (currentJobId) {
+        // Still show reprocess option even with no errors
+        panel.querySelector('p').style.display = 'none';
+        panel.querySelector('ul').style.display = 'none';
+        panel.style.display = 'block';
+      }
 
       // All-parts combined MP3
       if (data.all_mp3_url) {
@@ -917,6 +961,77 @@
       fileName.textContent = '';
       fileInput.value = '';
     }
+
+    // ── Re-process ──
+    document.getElementById('reprocessBtn').addEventListener('click', async () => {
+      if (!currentJobId) return;
+      const btn = document.getElementById('reprocessBtn');
+      const status = document.getElementById('reprocessStatus');
+      btn.disabled = true;
+      btn.textContent = 'Processing…';
+      status.style.display = 'block';
+      status.style.color = 'var(--teal-light)';
+      status.textContent = 'Re-running with your corrections…';
+
+      const API = 'https://choralsplit.fly.dev';
+      const fd = new FormData();
+      fd.append('job_id', currentJobId);
+      const corr = document.getElementById('reprocessCorrections').value.trim();
+      if (corr) fd.append('corrections', corr);
+      const bpm = document.getElementById('reprocessBpm').value.trim();
+      if (bpm) fd.append('tempo_bpm', bpm);
+
+      try {
+        const res = await fetch(`${API}/api/reprocess`, { method: 'POST', body: fd });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          let detail = `Server error ${res.status}`;
+          try { detail = JSON.parse(text).detail || detail; } catch(_) {}
+          throw new Error(detail);
+        }
+        const data = await res.json();
+        // Refresh the parts list but keep the preview
+        partList.innerHTML = '';
+        // Re-render parts (without re-rendering preview)
+        currentJobId = data.job_id || currentJobId;
+        document.getElementById('resultsHeader').textContent =
+          `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
+        if (data.all_mp3_url) {
+          const item = document.createElement('div');
+          item.className = 'part-item';
+          item.style.borderColor = 'rgba(212,184,74,0.25)';
+          item.innerHTML = `
+            <div>
+              <div class="part-name" style="color:var(--yellow-l)">All parts</div>
+              <div class="part-meta">Combined score</div>
+            </div>
+            <a class="btn-download" href="${API}${escHtml(data.all_mp3_url)}" download="All parts.mp3">Download</a>
+          `;
+          partList.appendChild(item);
+        }
+        data.parts.forEach(part => {
+          const item = document.createElement('div');
+          item.className = 'part-item';
+          item.innerHTML = `
+            <div>
+              <div class="part-name">${escHtml(part.name)}</div>
+              <div class="part-meta">${part.note_count ?? '—'} notes</div>
+            </div>
+            <a class="btn-download" href="${API}${escHtml(part.mp3_url)}" download="${escHtml(part.name)}.mp3">Download</a>
+          `;
+          partList.appendChild(item);
+        });
+        downloadAll.href = `${API}${data.zip_url}`;
+        status.style.color = 'var(--teal-light)';
+        status.textContent = '✓ Re-processed successfully.';
+      } catch (err) {
+        status.style.color = '#ff7a7a';
+        status.textContent = `Error: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Re-process';
+      }
+    });
 
     function escHtml(s) {
       return String(s)
