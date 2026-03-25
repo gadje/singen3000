@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="ChoralSplit API")
 
@@ -28,6 +29,9 @@ AUDIVERIS_CMD = os.environ.get("AUDIVERIS_CMD", "/opt/audiveris/bin/Audiveris")
 # Temp directory for jobs (cleaned up after response)
 JOBS_DIR = Path(tempfile.gettempdir()) / "choralsplit_jobs"
 JOBS_DIR.mkdir(exist_ok=True)
+
+# Serve generated files
+app.mount("/files", StaticFiles(directory=str(JOBS_DIR)), name="files")
 
 
 # ── Audiveris ────────────────────────────────────────────────────────────────
@@ -65,10 +69,11 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
 
 # ── music21 splitting ────────────────────────────────────────────────────────
 
-def split_parts(xml_path: Path, output_dir: Path, part_count: str) -> list[dict]:
+def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | None) -> dict:
     """
-    Parse MusicXML with music21, split by part, write one MIDI per part.
-    Returns a list of dicts: {name, midi_path, note_count}
+    Parse MusicXML with music21, strip dynamics, optionally override tempo,
+    split by part, write one MIDI per part + an all-parts MIDI.
+    Returns a dict with 'parts' list and 'all_midi_path'.
     """
     import music21  # imported here so startup is fast if music21 is missing
 
@@ -78,7 +83,26 @@ def split_parts(xml_path: Path, output_dir: Path, part_count: str) -> list[dict]
     if not parts:
         raise RuntimeError("No parts found in the MusicXML output.")
 
-    # If user specified a count, warn but don't fail — use what we have
+    # Remove all dynamic markings from the score
+    for el in score.recurse():
+        if isinstance(el, music21.dynamics.Dynamic):
+            el.activeSite.remove(el)
+
+    # Override tempo if the user specified one
+    if bpm:
+        # Remove existing tempo marks
+        for el in score.recurse():
+            if isinstance(el, music21.tempo.MetronomeMark):
+                el.activeSite.remove(el)
+        # Insert new tempo at the very start of each part
+        for part in parts:
+            part.insert(0, music21.tempo.MetronomeMark(number=bpm))
+
+    # Write full score (all parts) as MIDI
+    all_midi_path = output_dir / "All parts.mid"
+    score.write("midi", fp=str(all_midi_path))
+
+    # Split into individual parts
     results = []
     seen_names: dict[str, int] = {}
     for i, part in enumerate(parts):
@@ -112,7 +136,7 @@ def split_parts(xml_path: Path, output_dir: Path, part_count: str) -> list[dict]
             "note_count": note_count,
         })
 
-    return results
+    return {"parts": results, "all_midi_path": all_midi_path}
 
 
 def _part_name(part, index: int) -> str:
@@ -169,6 +193,7 @@ async def split_score(
     file: UploadFile = File(...),
     score_format: str = Form("auto"),
     part_count: str = Form("auto"),
+    tempo_bpm: str = Form(""),
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, detail="Only PDF files are accepted.")
@@ -194,30 +219,37 @@ async def split_score(
         # 3. Split parts with music21
         midi_out = job_dir / "midi"
         midi_out.mkdir()
-        parts = split_parts(xml_path, midi_out, part_count)
+        bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
+        split_result = split_parts(xml_path, midi_out, part_count, bpm)
+        parts = split_result["parts"]
+        all_midi_path = split_result["all_midi_path"]
 
         # 4. Convert MIDI to MP3
         for p in parts:
             p["mp3_path"] = midi_to_mp3(p["midi_path"])
+        all_mp3_path = midi_to_mp3(all_midi_path)
 
         # 5. Build ZIP containing both MIDI and MP3 files
         zip_path = job_dir / "all_parts.zip"
-        all_files = [p["midi_path"]
-                     for p in parts] + [p["mp3_path"] for p in parts]
+        all_files = (
+            [p["midi_path"] for p in parts]
+            + [p["mp3_path"] for p in parts]
+            + [all_midi_path, all_mp3_path]
+        )
         make_zip(all_files, zip_path)
 
-        # 6. Return file contents as base64 inline — avoids cross-machine 404s
-        #    since Fly.io can route follow-up requests to a different instance.
+        # 6. Return JSON with download URLs
         return {
             "parts": [
                 {
                     "name": p["name"],
-                    "mp3_b64": base64.b64encode(p["mp3_path"].read_bytes()).decode(),
+                    "mp3_url": f"/files/{job_id}/midi/{p['mp3_path'].name}",
                     "note_count": p["note_count"],
                 }
                 for p in parts
             ],
-            "zip_b64": base64.b64encode(zip_path.read_bytes()).decode(),
+            "all_mp3_url": f"/files/{job_id}/midi/{all_mp3_path.name}",
+            "zip_url": f"/files/{job_id}/all_parts.zip",
         }
 
     except RuntimeError as exc:

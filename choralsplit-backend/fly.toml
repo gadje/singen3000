@@ -17,7 +17,7 @@ primary_region = 'ams'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   # Audiveris can take several minutes on a large score
   [http_service.tls_options]
     alpn = ['h2', 'http/1.1']
