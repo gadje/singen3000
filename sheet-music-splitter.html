@@ -765,12 +765,12 @@
         activateStage(3);
 
         const data = await res.json();
-        // expected: { parts: [{ name, mp3_url, note_count }], zip_url }
+        // expected: { parts: [{ name, mp3_b64, note_count }], zip_b64 }
 
         stages.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
         progressBar.style.width = '100%';
 
-        renderResults(data, API);
+        renderResults(data);
 
       } catch(err) {
         showError(err.message || 'Something went wrong. Check the score is a clean typeset PDF and try again.');
@@ -779,11 +779,17 @@
 
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-    function renderResults(data, base) {
+    function b64ToObjectURL(b64, mimeType) {
+      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    }
+
+    function renderResults(data) {
       document.getElementById('resultsHeader').textContent =
         `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
 
       data.parts.forEach(part => {
+        const mp3Url = b64ToObjectURL(part.mp3_b64, 'audio/mpeg');
         const item = document.createElement('div');
         item.className = 'part-item';
         item.innerHTML = `
@@ -791,12 +797,13 @@
             <div class="part-name">${escHtml(part.name)}</div>
             <div class="part-meta">${part.note_count ?? '—'} notes</div>
           </div>
-          <a class="btn-download" href="${base}${escHtml(part.mp3_url)}" download>Download</a>
+          <a class="btn-download" href="${mp3Url}" download="${escHtml(part.name)}.mp3">Download</a>
         `;
         partList.appendChild(item);
       });
 
-      downloadAll.href = `${base}${data.zip_url}`;
+      downloadAll.href = b64ToObjectURL(data.zip_b64, 'application/zip');
+      downloadAll.download = 'all_parts.zip';
       resultsArea.classList.add('visible');
       submitBtn.disabled = false;
       submitBtn.textContent = 'Split another score';

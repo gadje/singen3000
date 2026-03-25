@@ -1,6 +1,7 @@
 """
 ChoralSplit backend — FastAPI + Audiveris + music21
 """
+import base64
 import os
 import shutil
 import subprocess
@@ -11,8 +12,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="ChoralSplit API")
 
@@ -29,9 +28,6 @@ AUDIVERIS_CMD = os.environ.get("AUDIVERIS_CMD", "/opt/audiveris/bin/Audiveris")
 # Temp directory for jobs (cleaned up after response)
 JOBS_DIR = Path(tempfile.gettempdir()) / "choralsplit_jobs"
 JOBS_DIR.mkdir(exist_ok=True)
-
-# Serve generated MIDI/ZIP files
-app.mount("/files", StaticFiles(directory=str(JOBS_DIR)), name="files")
 
 
 # ── Audiveris ────────────────────────────────────────────────────────────────
@@ -210,17 +206,18 @@ async def split_score(
                      for p in parts] + [p["mp3_path"] for p in parts]
         make_zip(all_files, zip_path)
 
-        # 6. Return JSON with download URLs
+        # 6. Return file contents as base64 inline — avoids cross-machine 404s
+        #    since Fly.io can route follow-up requests to a different instance.
         return {
             "parts": [
                 {
                     "name": p["name"],
-                    "mp3_url": f"/files/{job_id}/midi/{p['mp3_path'].name}",
+                    "mp3_b64": base64.b64encode(p["mp3_path"].read_bytes()).decode(),
                     "note_count": p["note_count"],
                 }
                 for p in parts
             ],
-            "zip_url": f"/files/{job_id}/all_parts.zip",
+            "zip_b64": base64.b64encode(zip_path.read_bytes()).decode(),
         }
 
     except RuntimeError as exc:
