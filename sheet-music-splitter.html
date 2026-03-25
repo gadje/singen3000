@@ -531,8 +531,8 @@
     </div>
 
     <div class="option-group reveal" style="margin-top:1rem;">
-      <label>Key changes (optional)</label>
-      <textarea id="keyChanges" rows="2" placeholder="e.g. Starts in Bb major, modulates to D major at bar 33" style="width:100%; padding:0.7rem 0.9rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:3px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.9rem; outline:none; resize:vertical; transition:border-color 0.2s;"></textarea>
+      <label>Score corrections (optional)</label>
+      <textarea id="corrections" rows="2" placeholder="e.g. Starts in Bb major at 100bpm, 3/4 time. Modulates to D major at bar 33." style="width:100%; padding:0.7rem 0.9rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:3px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.9rem; outline:none; resize:vertical; transition:border-color 0.2s;"></textarea>
     </div>
 
     <div class="submit-row reveal">
@@ -746,8 +746,8 @@
       formData.append('part_count', document.getElementById('partCount').value);
       const tempo = document.getElementById('tempoBpm').value;
       if (tempo) formData.append('tempo_bpm', tempo);
-      const keyChanges = document.getElementById('keyChanges').value.trim();
-      if (keyChanges) formData.append('key_changes', keyChanges);
+      const corrections = document.getElementById('corrections').value.trim();
+      if (corrections) formData.append('corrections', corrections);
 
       try {
         activateStage(0);

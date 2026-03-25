@@ -70,10 +70,10 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
 
 # ── music21 splitting ────────────────────────────────────────────────────────
 
-def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | None, key_changes_text: str | None = None) -> dict:
+def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | None = None, corrections_text: str | None = None) -> dict:
     """
-    Parse MusicXML with music21, strip dynamics, optionally override tempo,
-    apply key corrections, split by part, write one MIDI per part + an all-parts MIDI.
+    Parse MusicXML with music21, strip dynamics, apply corrections,
+    optionally override tempo, split by part, write one MIDI per part + an all-parts MIDI.
     Returns a dict with 'parts' list and 'all_midi_path'.
     """
     import music21  # imported here so startup is fast if music21 is missing
@@ -89,20 +89,48 @@ def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | No
         if isinstance(el, music21.dynamics.Dynamic):
             el.activeSite.remove(el)
 
-    # Apply key change corrections if provided
-    if key_changes_text:
-        key_instructions = parse_key_changes_with_llm(key_changes_text)
-        apply_key_changes(score, key_instructions)
+    # Apply corrections (key, tempo, time signature) if provided
+    if corrections_text:
+        instructions = parse_corrections_with_llm(corrections_text)
+        apply_corrections(score, instructions)
 
-    # Override tempo if the user specified one
+    # Override tempo globally if the BPM field was set
     if bpm:
-        # Remove existing tempo marks
         for el in score.recurse():
             if isinstance(el, music21.tempo.MetronomeMark):
                 el.activeSite.remove(el)
-        # Insert new tempo at the very start of each part
         for part in parts:
             part.insert(0, music21.tempo.MetronomeMark(number=bpm))
+
+    # Extract individual voices from parts (important for closed scores
+    # where e.g. soprano+alto share a staff, tenor+bass share a staff).
+    # If Audiveris returned fewer parts than expected, try voicesToParts().
+    target = None
+    if part_count != "auto":
+        try:
+            target = int(part_count)
+        except ValueError:
+            pass
+
+    if target and len(parts) < target:
+        expanded = []
+        for part in parts:
+            try:
+                voices = part.voicesToParts()
+                if len(voices) > 1:
+                    expanded.extend(voices.parts)
+                else:
+                    expanded.append(part)
+            except Exception:
+                expanded.append(part)
+        if len(expanded) > len(parts):
+            # Rebuild the score with expanded parts
+            new_score = music21.stream.Score()
+            for p in expanded:
+                new_score.insert(0, p)
+            # Carry over tempo/key from original
+            score = new_score
+            parts = score.parts
 
     # Write full score (all parts) as MIDI
     # Add metronome click track to the full score
@@ -225,14 +253,14 @@ def _make_click_track_for_part(source_part) -> "music21.stream.Part":
     return click
 
 
-# ── Key change correction (via Anthropic Haiku) ─────────────────────────────
+# ── Score corrections (via Anthropic Haiku) ─────────────────────────────────
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 
-def parse_key_changes_with_llm(user_text: str) -> list[dict]:
-    """Use Claude Haiku to parse natural-language key change descriptions
-    into structured [{bar, key}] instructions."""
+def parse_corrections_with_llm(user_text: str) -> list[dict]:
+    """Use Claude Haiku to parse natural-language score correction descriptions
+    into structured instructions for key, tempo, and time signature changes."""
     if not ANTHROPIC_API_KEY:
         raise RuntimeError(
             "ANTHROPIC_API_KEY is not configured on the server.")
@@ -241,19 +269,32 @@ def parse_key_changes_with_llm(user_text: str) -> list[dict]:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     response = client.messages.create(
-        model="claude-haiku-4-20250414",
-        max_tokens=512,
+        model="claude-3-5-haiku-20241022",
+        max_tokens=1024,
         messages=[{"role": "user", "content": user_text}],
         system=(
-            "You are a music theory assistant. The user will describe key signatures "
-            "and key changes in a choral score. Parse their description into a JSON "
-            "array of objects with exactly two fields:\n"
-            "  - \"bar\": integer bar/measure number (1-based)\n"
-            "  - \"key\": string key name that music21 understands, e.g. \"B- major\" "
-            "(for Bb major), \"f# minor\", \"D major\", \"e- minor\" etc.\n"
-            "Use music21 key conventions: sharps = '#', flats = '-', "
-            "e.g. Bb = 'B-', Eb = 'E-', F# = 'F#'.\n"
-            "If the user says 'starts in X' without a bar number, use bar 1.\n"
+            "You are a music theory assistant. The user will describe corrections "
+            "to a choral score — key changes, tempo changes, and/or time signature "
+            "changes. Parse their description into a JSON array of objects.\n\n"
+            "Each object must have:\n"
+            "  - \"bar\": integer bar/measure number (1-based). "
+            "If the user says 'starts at' or 'from the beginning' without a bar number, use 1.\n"
+            "  - \"type\": one of \"key\", \"tempo\", or \"time_signature\"\n"
+            "  - \"value\": the value to set, formatted as follows:\n\n"
+            "For type=\"key\": a music21 key string.\n"
+            "  sharps = '#', flats = '-'. "
+            "  e.g. Bb major = \"B- major\", F# minor = \"f# minor\", "
+            "Eb minor = \"e- minor\", D major = \"D major\".\n\n"
+            "For type=\"tempo\": an integer BPM, e.g. 120\n\n"
+            "For type=\"time_signature\": a time signature string, e.g. \"3/4\", \"6/8\"\n\n"
+            "Examples:\n"
+            "  User: 'Starts in Bb major at 100bpm, 3/4 time. Modulates to D major at bar 33. "
+            "Tempo change to 80bpm at bar 50.'\n"
+            "  Output: [{\"bar\":1,\"type\":\"key\",\"value\":\"B- major\"}, "
+            "{\"bar\":1,\"type\":\"tempo\",\"value\":100}, "
+            "{\"bar\":1,\"type\":\"time_signature\",\"value\":\"3/4\"}, "
+            "{\"bar\":33,\"type\":\"key\",\"value\":\"D major\"}, "
+            "{\"bar\":50,\"type\":\"tempo\",\"value\":80}]\n\n"
             "Return ONLY the JSON array, nothing else."
         ),
     )
@@ -265,29 +306,42 @@ def parse_key_changes_with_llm(user_text: str) -> list[dict]:
     return json.loads(raw)
 
 
-def apply_key_changes(score, key_instructions: list[dict]):
-    """Apply parsed key change instructions to a music21 score.
-    Each instruction is {bar: int, key: str}."""
+def apply_corrections(score, instructions: list[dict]):
+    """Apply parsed correction instructions to a music21 score.
+    Each instruction is {bar: int, type: 'key'|'tempo'|'time_signature', value: ...}."""
     import music21
 
-    for instr in key_instructions:
+    for instr in instructions:
         bar_num = instr["bar"]
-        key_str = instr["key"]
-        new_key = music21.key.Key(key_str)
+        change_type = instr["type"]
+        value = instr["value"]
 
         for part in score.parts:
-            # Find the target measure
             for measure in part.getElementsByClass("Measure"):
                 if measure.number == bar_num:
-                    # Remove any existing key signatures in this measure
-                    for ks in measure.getElementsByClass("KeySignature"):
-                        measure.remove(ks)
-                    measure.insert(0, new_key)
+                    if change_type == "key":
+                        for ks in measure.getElementsByClass("KeySignature"):
+                            measure.remove(ks)
+                        measure.insert(0, music21.key.Key(value))
+
+                    elif change_type == "tempo":
+                        for mm in measure.getElementsByClass("MetronomeMark"):
+                            measure.remove(mm)
+                        measure.insert(
+                            0, music21.tempo.MetronomeMark(number=int(value)))
+
+                    elif change_type == "time_signature":
+                        for ts in measure.getElementsByClass("TimeSignature"):
+                            measure.remove(ts)
+                        measure.insert(0, music21.meter.TimeSignature(value))
+
                     break
 
     # Re-spell accidentals based on the corrected key signatures
-    for part in score.parts:
-        part.makeAccidentals(inPlace=True, overrideStatus=True)
+    has_key_changes = any(i["type"] == "key" for i in instructions)
+    if has_key_changes:
+        for part in score.parts:
+            part.makeAccidentals(inPlace=True, overrideStatus=True)
 
 
 # ── ZIP helper ───────────────────────────────────────────────────────────────
@@ -327,7 +381,7 @@ async def split_score(
     score_format: str = Form("auto"),
     part_count: str = Form("auto"),
     tempo_bpm: str = Form(""),
-    key_changes: str = Form(""),
+    corrections: str = Form(""),
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, detail="Only PDF files are accepted.")
@@ -356,7 +410,7 @@ async def split_score(
         bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
         split_result = split_parts(
             xml_path, midi_out, part_count, bpm,
-            key_changes.strip() if key_changes else None,
+            corrections.strip() if corrections else None,
         )
         parts = split_result["parts"]
         all_midi_path = split_result["all_midi_path"]
