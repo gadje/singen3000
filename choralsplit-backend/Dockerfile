@@ -28,14 +28,31 @@ COPY --from=audiveris-build /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-# Tesseract OCR + MIDI→MP3 tools
+# Tesseract OCR + MIDI→MP3 tools + ImageMagick for PDF preprocessing
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-deu \
     fluidsynth \
     ffmpeg \
     fluid-soundfont-gm \
+    imagemagick \
+    ghostscript \
     && rm -rf /var/lib/apt/lists/*
+
+# Use tessdata_best for higher accuracy OCR
+RUN mkdir -p /usr/share/tesseract-ocr/5/tessdata_best \
+    && curl -L -o /usr/share/tesseract-ocr/5/tessdata_best/eng.traineddata \
+       https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata \
+    && curl -L -o /usr/share/tesseract-ocr/5/tessdata_best/deu.traineddata \
+       https://github.com/tesseract-ocr/tessdata_best/raw/main/deu.traineddata \
+    && curl -L -o /usr/share/tesseract-ocr/5/tessdata_best/osd.traineddata \
+       https://github.com/tesseract-ocr/tessdata_best/raw/main/osd.traineddata
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata_best
+
+# Allow ImageMagick to process PDFs (disabled by default in policy.xml)
+RUN if [ -f /etc/ImageMagick-6/policy.xml ]; then \
+      sed -i 's/<policy domain="coder" rights="none" pattern="PDF"/<policy domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml; \
+    fi
 
 # Copy built Audiveris
 COPY --from=audiveris-build /opt/audiveris /opt/audiveris

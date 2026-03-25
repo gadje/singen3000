@@ -35,6 +35,26 @@ JOBS_DIR.mkdir(exist_ok=True)
 app.mount("/files", StaticFiles(directory=str(JOBS_DIR)), name="files")
 
 
+# ── PDF preprocessing ────────────────────────────────────────────────────────
+
+def preprocess_pdf(pdf_path: Path) -> Path:
+    """Normalise a PDF to 300 DPI using ImageMagick (convert via Ghostscript).
+    Returns the path to the preprocessed PDF."""
+    out_path = pdf_path.with_name("score_300dpi.pdf")
+    subprocess.run(
+        [
+            "convert",
+            "-density", "300",
+            str(pdf_path),
+            "-quality", "100",
+            "-compress", "lossless",
+            str(out_path),
+        ],
+        check=True, capture_output=True, timeout=300,
+    )
+    return out_path
+
+
 # ── Audiveris ────────────────────────────────────────────────────────────────
 
 def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
@@ -397,7 +417,10 @@ async def split_score(
             content = await file.read()
             f.write(content)
 
-        # 2. Run Audiveris
+        # 2. Preprocess PDF to 300 DPI for better OMR accuracy
+        pdf_path = preprocess_pdf(pdf_path)
+
+        # 3. Run Audiveris
         audiveris_out = job_dir / "audiveris"
         audiveris_out.mkdir()
         xml_files = run_audiveris(pdf_path, audiveris_out)
