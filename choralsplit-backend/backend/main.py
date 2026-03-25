@@ -37,21 +37,23 @@ app.mount("/files", StaticFiles(directory=str(JOBS_DIR)), name="files")
 
 # ── PDF preprocessing ────────────────────────────────────────────────────────
 
-def preprocess_pdf(pdf_path: Path) -> Path:
-    """Normalise a PDF to 300 DPI using ImageMagick (convert via Ghostscript).
+def preprocess_pdf(pdf_path: Path, deskew: bool = False, to_bw: bool = False) -> Path:
+    """Normalise a PDF to 300 DPI using ImageMagick, with optional deskew and B&W conversion.
     Returns the path to the preprocessed PDF."""
     out_path = pdf_path.with_name("score_300dpi.pdf")
-    subprocess.run(
-        [
-            "convert",
-            "-density", "300",
-            str(pdf_path),
-            "-quality", "100",
-            "-compress", "lossless",
-            str(out_path),
-        ],
-        check=True, capture_output=True, timeout=300,
-    )
+    cmd = [
+        "convert",
+        "-density", "300",
+        str(pdf_path),
+        "-quality", "100",
+        "-compress", "lossless",
+    ]
+    if deskew:
+        cmd += ["-deskew", "40%"]
+    if to_bw:
+        cmd += ["-colorspace", "Gray", "-threshold", "50%"]
+    cmd.append(str(out_path))
+    subprocess.run(cmd, check=True, capture_output=True, timeout=300)
     return out_path
 
 
@@ -63,6 +65,7 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
         AUDIVERIS_CMD,
         "-batch",
         "-export",
+        "-option", "org.audiveris.omr.text.tesseract.TesseractOCR.useOCR=false",
         "-output", str(output_dir),
         "--",
         str(pdf_path),
@@ -402,6 +405,9 @@ async def split_score(
     part_count: str = Form("auto"),
     tempo_bpm: str = Form(""),
     corrections: str = Form(""),
+    deskew: str = Form("0"),
+    bw: str = Form("0"),
+    preprocess_only: str = Form("0"),
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, detail="Only PDF files are accepted.")
@@ -418,7 +424,17 @@ async def split_score(
             f.write(content)
 
         # 2. Preprocess PDF to 300 DPI for better OMR accuracy
-        pdf_path = preprocess_pdf(pdf_path)
+        pdf_path = preprocess_pdf(
+            pdf_path,
+            deskew=deskew == "1",
+            to_bw=bw == "1",
+        )
+
+        # Early return: just serve the preprocessed PDF
+        if preprocess_only == "1":
+            return {
+                "preprocess_pdf_url": f"/files/{job_id}/{pdf_path.name}"
+            }
 
         # 3. Run Audiveris
         audiveris_out = job_dir / "audiveris"

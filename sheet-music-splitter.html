@@ -526,13 +526,25 @@
       </div>
       <div class="option-group">
         <label>Tempo (BPM)</label>
-        <input type="number" id="tempoBpm" min="20" max="300" placeholder="e.g. 100" style="background-image:none; padding-right:0.9rem;"/>
+        <input type="number" id="tempoBpm" min="20" max="300" value="76" style="background-image:none; padding-right:0.9rem;"/>
       </div>
     </div>
 
     <div class="option-group reveal" style="margin-top:1rem;">
       <label>Score corrections (optional)</label>
       <textarea id="corrections" rows="2" placeholder="e.g. Starts in Bb major at 100bpm, 3/4 time. Modulates to D major at bar 33." style="width:100%; padding:0.7rem 0.9rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:3px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.9rem; outline:none; resize:vertical; transition:border-color 0.2s;"></textarea>
+    </div>
+
+    <div class="reveal" style="margin-top:1rem; display:flex; gap:2rem;">
+      <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.8rem; color:rgba(255,255,255,0.4); cursor:pointer;">
+        <input type="checkbox" id="deskew" style="accent-color:var(--teal-light);"/> Deskew (straighten rotated scans)
+      </label>
+      <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.8rem; color:rgba(255,255,255,0.4); cursor:pointer;">
+        <input type="checkbox" id="bw" style="accent-color:var(--teal-light);"/> Convert to black &amp; white
+      </label>
+      <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.8rem; color:rgba(255,255,255,0.4); cursor:pointer;">
+        <input type="checkbox" id="preprocessOnly" style="accent-color:var(--teal-light);"/> Preprocess only (download PDF)
+      </label>
     </div>
 
     <div class="submit-row reveal">
@@ -748,6 +760,9 @@
       if (tempo) formData.append('tempo_bpm', tempo);
       const corrections = document.getElementById('corrections').value.trim();
       if (corrections) formData.append('corrections', corrections);
+      formData.append('deskew', document.getElementById('deskew').checked ? '1' : '0');
+      formData.append('bw', document.getElementById('bw').checked ? '1' : '0');
+      formData.append('preprocess_only', document.getElementById('preprocessOnly').checked ? '1' : '0');
 
       try {
         activateStage(0);
@@ -779,11 +794,16 @@
 
         const data = await res.json();
         // expected: { parts: [{ name, mp3_url, note_count }], all_mp3_url, zip_url }
+        //        or: { preprocess_pdf_url } when preprocess-only mode
 
         stages.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
         progressBar.style.width = '100%';
 
-        renderResults(data, API);
+        if (data.preprocess_pdf_url) {
+          renderPreprocessResult(data, API);
+        } else {
+          renderResults(data, API);
+        }
 
       } catch(err) {
         showError(err.message || 'Something went wrong. Check the score is a clean typeset PDF and try again.');
@@ -791,6 +811,28 @@
     });
 
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function renderPreprocessResult(data, base) {
+      document.getElementById('resultsHeader').textContent = 'Preprocessed PDF ready';
+      const item = document.createElement('div');
+      item.className = 'part-item';
+      item.innerHTML = `
+        <div>
+          <div class="part-name" style="color:var(--teal-light)">Preprocessed PDF</div>
+          <div class="part-meta">300 DPI — inspect before full processing</div>
+        </div>
+        <a class="btn-download" href="${base}${escHtml(data.preprocess_pdf_url)}" download="preprocessed.pdf">Download</a>
+      `;
+      partList.appendChild(item);
+      downloadAll.style.display = 'none';
+      resultsArea.classList.add('visible');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Split another score';
+      selectedFile = null;
+      dropZone.classList.remove('has-file');
+      fileName.textContent = '';
+      fileInput.value = '';
+    }
 
     function renderResults(data, base) {
       document.getElementById('resultsHeader').textContent =
@@ -824,6 +866,7 @@
         partList.appendChild(item);
       });
 
+      downloadAll.style.display = '';
       downloadAll.href = `${base}${data.zip_url}`;
       downloadAll.download = 'all_parts.zip';
       resultsArea.classList.add('visible');
