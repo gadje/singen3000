@@ -582,6 +582,22 @@
     <!-- Results -->
     <div class="results-area" id="resultsArea">
       <p class="results-header" id="resultsHeader">Your parts are ready</p>
+
+      <!-- Score preview: original PDF vs Verovio SVG -->
+      <div id="previewSection" style="display:none; margin-bottom:2.5rem;">
+        <p style="font-size:0.72rem; letter-spacing:0.2em; text-transform:uppercase; color:rgba(255,255,255,0.28); font-weight:700; margin-bottom:0.9rem;">Score preview</p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.2rem;">
+          <div>
+            <p style="font-size:0.7rem; color:rgba(255,255,255,0.2); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:0.5rem;">Original PDF</p>
+            <div id="previewOrigPages" style="max-height:65vh; overflow-y:auto; border:1px solid rgba(255,255,255,0.07); border-radius:4px; padding:0.4rem; background:rgba(0,0,0,0.25);"></div>
+          </div>
+          <div>
+            <p style="font-size:0.7rem; color:rgba(255,255,255,0.2); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:0.5rem;">Recognised score</p>
+            <div id="previewSvgPages" style="max-height:65vh; overflow-y:auto; border:1px solid rgba(255,255,255,0.07); border-radius:4px; padding:0.4rem; background:#f8f8f8;"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="part-list" id="partList"></div>
       <a class="btn-download-all" id="downloadAll" href="#" download>Download all as ZIP</a>
     </div>
@@ -724,6 +740,9 @@
       stages.forEach(s => { s.classList.remove('active','done'); });
       progressBar.style.width = '0%';
       partList.innerHTML = '';
+      document.getElementById('previewSection').style.display = 'none';
+      document.getElementById('previewOrigPages').innerHTML = '';
+      document.getElementById('previewSvgPages').innerHTML = '';
     }
 
     function activateStage(n) {
@@ -834,9 +853,30 @@
       fileInput.value = '';
     }
 
+    function renderPreview(preview, base) {
+      if (!preview) return;
+      const origDiv = document.getElementById('previewOrigPages');
+      const svgDiv  = document.getElementById('previewSvgPages');
+      (preview.pdf_pages || []).forEach(url => {
+        const img = document.createElement('img');
+        img.src = base + url;
+        img.style.cssText = 'width:100%; display:block; margin-bottom:3px; border-radius:2px;';
+        origDiv.appendChild(img);
+      });
+      (preview.svg_pages || []).forEach(url => {
+        const img = document.createElement('img');
+        img.src = base + url;
+        img.style.cssText = 'width:100%; display:block; margin-bottom:3px; border-radius:2px;';
+        svgDiv.appendChild(img);
+      });
+      document.getElementById('previewSection').style.display = 'block';
+    }
+
     function renderResults(data, base) {
       document.getElementById('resultsHeader').textContent =
         `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
+
+      renderPreview(data.preview, base);
 
       // All-parts combined MP3
       if (data.all_mp3_url) {

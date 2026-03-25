@@ -38,12 +38,13 @@ app.mount("/files", StaticFiles(directory=str(JOBS_DIR)), name="files")
 # ── PDF preprocessing ────────────────────────────────────────────────────────
 
 def preprocess_pdf(pdf_path: Path, deskew: bool = False, to_bw: bool = False) -> Path:
-    """Normalise a PDF to 300 DPI using ImageMagick, with optional deskew and B&W conversion.
-    Returns the path to the preprocessed PDF."""
-    out_path = pdf_path.with_name("score_300dpi.pdf")
+    """Apply optional deskew and/or B&W conversion using ImageMagick.
+    Returns the path to the preprocessed PDF (or original if nothing to do)."""
+    if not deskew and not to_bw:
+        return pdf_path
+    out_path = pdf_path.with_name("score_preprocessed.pdf")
     cmd = [
         "convert",
-        "-density", "300",
         str(pdf_path),
         "-quality", "100",
         "-compress", "lossless",
@@ -89,6 +90,47 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> list[Path]:
             "The score may be a scan rather than typeset, or the PDF is corrupt."
         )
     return xml_files
+
+
+def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
+    """Render each PDF page to a JPEG at 150 DPI using ImageMagick."""
+    subprocess.run(
+        ["convert", "-density", "150", str(pdf_path),
+         "-quality", "85", str(output_dir / "orig-%02d.jpg")],
+        check=True, capture_output=True, timeout=120,
+    )
+    pages = sorted(output_dir.glob("orig-*.jpg"))
+    if not pages:
+        # Single-page fallback: ImageMagick may omit the number suffix
+        single = output_dir / "orig.jpg"
+        if single.exists():
+            renamed = output_dir / "orig-00.jpg"
+            single.rename(renamed)
+            pages = [renamed]
+    return pages
+
+
+def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
+    """Render MusicXML to per-page SVG files using Verovio."""
+    import verovio
+    vrv = verovio.toolkit()
+    vrv.setOptions(json.dumps({
+        "pageWidth": 2100,
+        "pageHeight": 2970,
+        "adjustPageHeight": False,
+        "scale": 40,
+        "footer": "none",
+        "header": "none",
+        "breaks": "auto",
+        "svgViewBox": True,
+    }))
+    vrv.loadFile(str(xml_path))
+    pages = []
+    for i in range(1, vrv.getPageCount() + 1):
+        svg_path = output_dir / f"score-{i:02d}.svg"
+        svg_path.write_text(vrv.renderToSVG(i))
+        pages.append(svg_path)
+    return pages
 
 
 # ── music21 splitting ────────────────────────────────────────────────────────
@@ -443,6 +485,20 @@ async def split_score(
         # take first (multi-page scores may produce one file)
         xml_path = xml_files[0]
 
+        # Render score preview: original PDF pages as JPEGs + Verovio SVGs
+        preview = None
+        try:
+            preview_dir = job_dir / "preview"
+            preview_dir.mkdir()
+            pdf_page_paths = render_pdf_pages(pdf_path, preview_dir)
+            svg_page_paths = render_musicxml_svg(xml_path, preview_dir)
+            preview = {
+                "pdf_pages": [f"/files/{job_id}/preview/{p.name}" for p in pdf_page_paths],
+                "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
+            }
+        except Exception:
+            pass  # preview is optional; never break the main pipeline
+
         # 3. Split parts with music21
         midi_out = job_dir / "midi"
         midi_out.mkdir()
@@ -480,6 +536,7 @@ async def split_score(
             ],
             "all_mp3_url": f"/files/{job_id}/midi/{all_mp3_path.name}",
             "zip_url": f"/files/{job_id}/all_parts.zip",
+            "preview": preview,
         }
 
     except RuntimeError as exc:
