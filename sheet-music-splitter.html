@@ -935,12 +935,15 @@
         try {
           const resp = await fetch(base + url);
           const svgText = await resp.text();
-          wrapper.innerHTML = svgText;
+          // Strip XML declaration — innerHTML chokes on <?xml ...?> preambles
+          wrapper.innerHTML = svgText.replace(/^<\?xml[^>]*\?>\s*/i, '');
           const svgEl = wrapper.querySelector('svg');
           if (svgEl) {
             svgEl.style.cssText = 'width:100%; height:auto; display:block; border-radius:2px;';
             svgDiv.appendChild(wrapper);
-            // Find measure groups — Verovio uses g[class~="measure"]
+            // Let the browser lay out the SVG before calling getBBox()
+            await new Promise(r => requestAnimationFrame(r));
+            // Verovio renders one <g class="measure"> per bar (containing all staves)
             const measureEls = svgEl.querySelectorAll('g[class~="measure"]');
             measureEls.forEach(m => {
               globalBarIdx++;
@@ -1096,12 +1099,22 @@
           throw new Error(detail);
         }
         const data = await res.json();
-        // Refresh the parts list but keep the preview
-        partList.innerHTML = '';
-        // Re-render parts (without re-rendering preview)
         currentJobId = data.job_id || currentJobId;
         document.getElementById('resultsHeader').textContent =
           `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
+
+        // Refresh SVG preview if the backend returned updated pages
+        if (data.preview && data.preview.svg_pages) {
+          document.getElementById('previewSvgPages').innerHTML = '';
+          // Re-render SVG column only (original PDF column stays unchanged)
+          renderPreviewInline(
+            { pdf_pages: [], svg_pages: data.preview.svg_pages },
+            API, []
+          );
+        }
+
+        // Refresh the parts list
+        partList.innerHTML = '';
         if (data.all_mp3_url) {
           const item = document.createElement('div');
           item.className = 'part-item';

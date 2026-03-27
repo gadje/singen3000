@@ -149,11 +149,9 @@ def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
     return pages
 
 
-def render_musicxml_svg(
-    xml_path: Path, output_dir: Path, error_bars: list[int] | None = None,
-) -> list[Path]:
+def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
     """Render MusicXML to per-page SVG files using Verovio.
-    If error_bars is provided, measures with those numbers get a red highlight."""
+    Error bar highlighting is handled client-side."""
     import verovio
     vrv = verovio.toolkit()
     vrv.setOptions(json.dumps({
@@ -167,88 +165,47 @@ def render_musicxml_svg(
         "svgViewBox": True,
     }))
     vrv.loadFile(str(xml_path))
-    error_set = set(error_bars or [])
     pages = []
     for i in range(1, vrv.getPageCount() + 1):
-        svg_text = vrv.renderToSVG(i)
-        if error_set:
-            svg_text = _highlight_error_bars_in_svg(svg_text, error_set)
         svg_path = output_dir / f"score-{i:02d}.svg"
-        svg_path.write_text(svg_text)
+        svg_path.write_text(vrv.renderToSVG(i))
         pages.append(svg_path)
     return pages
 
 
-def _highlight_error_bars_in_svg(svg_text: str, error_bars: set[int]) -> str:
-    """Inject semi-transparent red rectangles behind measures flagged with errors.
-    Verovio emits <g class="measure" ...> elements with an id like 'measure-MxxxxxxN'
-    where N encodes the measure number."""
+def strip_dynamics_from_xml(xml_path: Path, out_path: Path) -> None:
+    """Write a copy of the MusicXML with all dynamic/hairpin directions removed.
+    Audiveris sometimes misreads notes as dynamics; stripping them gives a cleaner
+    SVG preview and avoids spurious MIDI volume changes."""
     import xml.etree.ElementTree as ET
-    try:
-        root = ET.fromstring(svg_text)
-    except ET.ParseError:
-        return svg_text  # don't break if SVG is malformed
 
-    ns = {'svg': 'http://www.w3.org/2000/svg'}
-    ET.register_namespace('', 'http://www.w3.org/2000/svg')
-    ET.register_namespace('xlink', 'http://www.w3.org/1999/xlink')
+    tree = ET.parse(str(xml_path))
+    root = tree.getroot()
+    ns = root.tag.split("}")[0] + "}" if root.tag.startswith("{") else ""
 
-    for g in root.iter('{http://www.w3.org/2000/svg}g'):
-        cls = g.get('class', '')
-        if 'measure' not in cls:
-            continue
-        # Try to extract measure number from id or from a data attribute
-        gid = g.get('id', '')
-        m = re.search(r'(\d+)$', gid)
-        if not m:
-            # Try Verovio's newer naming
-            m = re.search(r'measure-(\d+)', gid)
-        if not m:
-            continue
-        measure_num = int(m.group(1))
-        if measure_num not in error_bars:
-            continue
-        # Compute bounding box from child elements
-        bbox = _svg_group_bbox(g)
-        if bbox is None:
-            continue
-        x, y, w, h = bbox
-        rect = ET.SubElement(g, '{http://www.w3.org/2000/svg}rect')
-        rect.set('x', str(x - 2))
-        rect.set('y', str(y - 2))
-        rect.set('width', str(w + 4))
-        rect.set('height', str(h + 4))
-        rect.set('fill', 'rgba(255,60,60,0.18)')
-        rect.set('stroke', '#ff3c3c')
-        rect.set('stroke-width', '1.5')
-        rect.set('rx', '3')
-        # Insert as first child so it sits behind the notes
-        g.insert(0, rect)
+    dyn_tags = {f"{ns}dynamics", f"{ns}wedge", f"{ns}dashes"}
 
-    return ET.tostring(root, encoding='unicode')
+    for measure in root.iter(f"{ns}measure"):
+        to_remove = []
+        for direction in list(measure):
+            if direction.tag != f"{ns}direction":
+                continue
+            # Check every direction-type child — remove the direction only if
+            # ALL its direction-type children are pure dynamics/hairpin content.
+            dir_types = direction.findall(f"{ns}direction-type")
+            if not dir_types:
+                continue
+            all_dyn = all(
+                all(child.tag in dyn_tags for child in dt)
+                for dt in dir_types
+            )
+            if all_dyn:
+                to_remove.append(direction)
+        for el in to_remove:
+            measure.remove(el)
 
-
-def _svg_group_bbox(g) -> tuple[float, float, float, float] | None:
-    """Rough bounding box from x/y/width/height attrs of children."""
-    xs, ys, x2s, y2s = [], [], [], []
-    for el in g.iter():
-        try:
-            ex = float(el.get('x', 'nan'))
-            ey = float(el.get('y', 'nan'))
-            xs.append(ex)
-            ys.append(ey)
-            ew = float(el.get('width', '0'))
-            eh = float(el.get('height', '0'))
-            x2s.append(ex + ew)
-            y2s.append(ey + eh)
-        except (ValueError, TypeError):
-            continue
-    if not xs:
-        return None
-    min_x, min_y = min(xs), min(ys)
-    max_x = max(x2s) if x2s else max(xs)
-    max_y = max(y2s) if y2s else max(ys)
-    return (min_x, min_y, max_x - min_x, max_y - min_y)
+    ET.register_namespace("", "http://www.w3.org/2000/svg")
+    tree.write(str(out_path), xml_declaration=True, encoding="unicode")
 
 
 # ── music21 splitting ────────────────────────────────────────────────────────
@@ -725,15 +682,15 @@ async def split_score(
         xml_path = xml_files[0]
 
         # Render score preview: original PDF pages as JPEGs + Verovio SVGs
-        error_bar_nums = [e["bar"] for e in error_bars]
         preview = None
         try:
             preview_dir = job_dir / "preview"
             preview_dir.mkdir()
             pdf_page_paths = render_pdf_pages(pdf_path, preview_dir)
-            svg_page_paths = render_musicxml_svg(
-                xml_path, preview_dir, error_bars=error_bar_nums,
-            )
+            # Strip dynamics before rendering so the SVG shows clean notation
+            clean_xml = preview_dir / "score_clean.xml"
+            strip_dynamics_from_xml(xml_path, clean_xml)
+            svg_page_paths = render_musicxml_svg(clean_xml, preview_dir)
             preview = {
                 "pdf_pages": [f"/files/{job_id}/preview/{p.name}" for p in pdf_page_paths],
                 "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
@@ -799,7 +756,7 @@ async def reprocess_score(
     part_count: str = Form("auto"),
 ):
     """Re-run music21 splitting on an existing job's MusicXML with new corrections.
-    Skips Audiveris entirely — just re-processes the existing XML."""
+    Skips Audiveris — re-processes the existing XML, regenerates SVG preview and audio."""
     job_dir = JOBS_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(
@@ -814,17 +771,44 @@ async def reprocess_score(
     xml_path = xml_files[0]
 
     try:
-        # Clear old MIDI/MP3 output
+        bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
+        corrections_text = corrections.strip() if corrections else None
+
+        # Apply corrections to a saved copy so both SVG and MIDI use the same XML
+        corrected_xml = job_dir / "corrected.xml"
+        if corrections_text or bpm:
+            _apply_and_save_xml(xml_path, corrected_xml, corrections_text, bpm)
+            working_xml = corrected_xml
+        else:
+            working_xml = xml_path
+
+        # Regenerate SVG preview from the corrected XML
+        preview = None
+        try:
+            preview_dir = job_dir / "preview"
+            preview_dir.mkdir(exist_ok=True)
+            # Remove old SVGs so stale pages don't linger
+            for old_svg in preview_dir.glob("score-*.svg"):
+                old_svg.unlink()
+            clean_xml = preview_dir / "score_clean.xml"
+            strip_dynamics_from_xml(working_xml, clean_xml)
+            svg_page_paths = render_musicxml_svg(clean_xml, preview_dir)
+            preview = {
+                "svg_pages": [
+                    f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths
+                ],
+            }
+        except Exception:
+            pass  # preview failure never breaks audio generation
+
+        # Clear old MIDI/MP3 output and regenerate
         midi_out = job_dir / "midi"
         if midi_out.exists():
             shutil.rmtree(midi_out)
         midi_out.mkdir()
 
-        bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
-        split_result = split_parts(
-            xml_path, midi_out, part_count, bpm,
-            corrections.strip() if corrections else None,
-        )
+        # Pass corrections=None since they're already baked into working_xml
+        split_result = split_parts(working_xml, midi_out, part_count, bpm=None)
         parts = split_result["parts"]
         all_midi_path = split_result["all_midi_path"]
 
@@ -833,12 +817,12 @@ async def reprocess_score(
         all_mp3_path = midi_to_mp3(all_midi_path)
 
         zip_path = job_dir / "all_parts.zip"
-        all_files = (
+        make_zip(
             [p["midi_path"] for p in parts]
             + [p["mp3_path"] for p in parts]
-            + [all_midi_path, all_mp3_path]
+            + [all_midi_path, all_mp3_path],
+            zip_path,
         )
-        make_zip(all_files, zip_path)
 
         return {
             "job_id": job_id,
@@ -852,12 +836,36 @@ async def reprocess_score(
             ],
             "all_mp3_url": f"/files/{job_id}/midi/{all_mp3_path.name}",
             "zip_url": f"/files/{job_id}/all_parts.zip",
+            "preview": preview,
         }
 
     except RuntimeError as exc:
         raise HTTPException(422, detail=str(exc))
     except Exception as exc:
         raise HTTPException(500, detail=f"Unexpected error: {exc}")
+
+
+def _apply_and_save_xml(
+    xml_path: Path, out_path: Path,
+    corrections_text: str | None, bpm: int | None,
+) -> None:
+    """Parse MusicXML, apply corrections + tempo, write corrected XML to out_path."""
+    import music21
+
+    score = music21.converter.parse(str(xml_path))
+
+    if corrections_text:
+        instructions = parse_corrections_with_llm(corrections_text)
+        apply_corrections(score, instructions)
+
+    if bpm:
+        for el in score.recurse():
+            if isinstance(el, music21.tempo.MetronomeMark):
+                el.activeSite.remove(el)
+        for part in score.parts:
+            part.insert(0, music21.tempo.MetronomeMark(number=bpm))
+
+    score.write("musicxml", fp=str(out_path))
 
 
 @app.get("/health")
