@@ -702,6 +702,17 @@ async def split_score(
         # take first (multi-page scores may produce one file)
         xml_path = xml_files[0]
 
+        # If corrections were provided, bake them into a corrected XML now so
+        # both the SVG preview and the audio use the same corrected score.
+        bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
+        corrections_text = corrections.strip() if corrections else None
+        if corrections_text or bpm:
+            corrected_xml = job_dir / "corrected.xml"
+            _apply_and_save_xml(xml_path, corrected_xml, corrections_text, bpm)
+            working_xml = corrected_xml
+        else:
+            working_xml = xml_path
+
         # Render score preview: original PDF pages as JPEGs + Verovio SVGs
         preview = None
         try:
@@ -711,10 +722,10 @@ async def split_score(
             # Strip dynamics before rendering so the SVG shows clean notation
             clean_xml = preview_dir / "score_clean.xml"
             try:
-                strip_dynamics_from_xml(xml_path, clean_xml)
+                strip_dynamics_from_xml(working_xml, clean_xml)
                 render_xml = clean_xml
             except Exception:
-                render_xml = xml_path  # fall back to original if stripping fails
+                render_xml = working_xml  # fall back to original if stripping fails
             svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
             preview = {
                 "pdf_pages": [f"/files/{job_id}/preview/{p.name}" for p in pdf_page_paths],
@@ -727,11 +738,9 @@ async def split_score(
         # 4. Split parts with music21
         midi_out = job_dir / "midi"
         midi_out.mkdir()
-        bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
-        split_result = split_parts(
-            xml_path, midi_out, part_count, bpm,
-            corrections.strip() if corrections else None,
-        )
+        # Corrections are already baked into working_xml; pass bpm=None too
+        # since _apply_and_save_xml already inserted the tempo mark.
+        split_result = split_parts(working_xml, midi_out, part_count, bpm=None)
         parts = split_result["parts"]
         all_midi_path = split_result["all_midi_path"]
 
@@ -896,6 +905,129 @@ def _apply_and_save_xml(
             part.insert(0, music21.tempo.MetronomeMark(number=bpm))
 
     score.write("musicxml", fp=str(out_path))
+
+
+def _svg_to_png(svg_path: Path) -> Path:
+    """Rasterise a Verovio SVG to PNG for use in vision API calls.
+    Tries cairosvg first (pure-Python), falls back to ImageMagick."""
+    png_path = svg_path.with_suffix(".png")
+    try:
+        import cairosvg  # type: ignore
+        cairosvg.svg2png(url=str(svg_path), write_to=str(png_path), dpi=150)
+    except Exception:
+        subprocess.run(
+            ["convert", "-background", "white", "-flatten",
+             "-density", "150", str(svg_path), str(png_path)],
+            check=True, capture_output=True, timeout=60,
+        )
+    return png_path
+
+
+def autodetect_corrections(
+    pdf_page_paths: list[Path],
+    svg_page_paths: list[Path],
+) -> str:
+    """Compare original PDF page images against Verovio-rendered SVG pages using
+    Claude Sonnet vision.  Returns a natural-language description of every
+    discrepancy found, suitable for pasting into the corrections textarea."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not configured on the server.")
+
+    import anthropic
+    import base64
+
+    # Rasterise SVG pages to PNG; skip any that fail
+    png_pages: list[Path] = []
+    for svgp in svg_page_paths:
+        try:
+            png_pages.append(_svg_to_png(svgp))
+        except Exception:
+            pass
+
+    if not pdf_page_paths and not png_pages:
+        raise RuntimeError("No pages available to compare.")
+
+    # Build the message: all original pages first, then all recognised pages.
+    # Labelling them clearly lets the model match sections even when page
+    # counts differ between the original layout and the Verovio layout.
+    content: list[dict] = []
+
+    def _img_block(path: Path, media_type: str) -> dict:
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.standard_b64encode(path.read_bytes()).decode(),
+            },
+        }
+
+    for i, p in enumerate(pdf_page_paths[:10], 1):   # cap at 10 pages each side
+        content.append({"type": "text", "text": f"=== ORIGINAL SCORE — page {i} ==="})
+        content.append(_img_block(p, "image/jpeg"))
+
+    for i, p in enumerate(png_pages[:10], 1):
+        content.append({"type": "text", "text": f"=== COMPUTER-RECOGNISED SCORE — page {i} ==="})
+        content.append(_img_block(p, "image/png"))
+
+    content.append({"type": "text", "text": (
+        "Compare the ORIGINAL SCORE pages against the COMPUTER-RECOGNISED SCORE pages. "
+        "The two versions may have different page layouts but contain the same music.\n\n"
+        "List every musical discrepancy you find: wrong pitch, wrong rhythm, missing or "
+        "extra notes, wrong accidental, wrong key signature, wrong time signature, etc. "
+        "For each issue state the bar number (counting from bar 1 at the start of the piece, "
+        "continuously across pages) and the affected voice or part "
+        "(e.g. Soprano, Alto, Tenor, Bass, or top/bottom if unlabelled).\n\n"
+        "Format each discrepancy on its own line, e.g.:\n"
+        "Bar 7, Bass: should be E2 minim, not D2 minim\n"
+        "Bar 12, Soprano: missing dotted crotchet — should be F#5 dotted crotchet + quaver rest\n"
+        "Bar 20, all parts: key signature should be Bb major, not C major\n\n"
+        "If you find no discrepancies, write exactly: No discrepancies found."
+    )})
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=(
+            "You are a meticulous music score proofreader. "
+            "Focus on musical content only — pitches, rhythms, rests, accidentals, "
+            "articulations, key signatures, time signatures. "
+            "Ignore layout differences such as beam angles, spacing, or page breaks."
+        ),
+        messages=[{"role": "user", "content": content}],
+    )
+
+    if not response.content:
+        raise RuntimeError("Vision comparison returned no content.")
+    return response.content[0].text.strip()
+
+
+@app.post("/api/autodetect")
+async def autodetect_score_corrections(job_id: str = Form(...)):
+    """Compare the original PDF pages against the Verovio SVG pages for a job.
+    Returns a natural-language corrections string ready for the reprocess textarea."""
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.exists():
+        raise HTTPException(
+            404, detail="Job not found — the server may have restarted. Please re-upload.")
+
+    preview_dir = job_dir / "preview"
+    pdf_pages = sorted(preview_dir.glob("orig-*.jpg")) if preview_dir.exists() else []
+    svg_pages = sorted(preview_dir.glob("score-*.svg")) if preview_dir.exists() else []
+
+    if not pdf_pages or not svg_pages:
+        raise HTTPException(
+            422, detail="Preview pages not found for this job. "
+                        "Re-upload to regenerate them.")
+
+    try:
+        text = autodetect_corrections(pdf_pages, svg_pages)
+        return {"corrections": text}
+    except RuntimeError as exc:
+        raise HTTPException(422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(500, detail=f"Unexpected error: {exc}")
 
 
 @app.get("/health")

@@ -621,7 +621,10 @@
         <p style="color:var(--yellow-l); font-size:0.85rem; font-weight:700; letter-spacing:0.05em; margin-bottom:0.8rem;">&#9888;&#65039; Audiveris flagged issues</p>
         <ul id="errorBarsList" style="margin:0 0 1.2rem 1rem; font-size:0.82rem; color:rgba(255,255,255,0.55); line-height:1.7;"></ul>
         <p style="font-size:0.78rem; color:rgba(255,255,255,0.35); margin-bottom:1rem;">Describe corrections below and click <strong style="color:rgba(255,255,255,0.6);">Re-process</strong> to regenerate the audio without re-running Audiveris.</p>
-        <label style="display:block; font-size:0.75rem; color:rgba(255,255,255,0.4); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:0.4rem;">Corrections</label>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:0.4rem;">
+          <label style="font-size:0.75rem; color:rgba(255,255,255,0.4); letter-spacing:0.1em; text-transform:uppercase;">Corrections</label>
+          <button id="autodetectBtn" style="padding:0.3rem 0.8rem; background:rgba(61,138,140,0.18); color:var(--teal-light); font-family:'Nunito',sans-serif; font-weight:700; font-size:0.72rem; letter-spacing:0.06em; border:1px solid rgba(61,138,140,0.35); border-radius:3px; cursor:pointer; transition:opacity 0.2s;">Auto-detect discrepancies</button>
+        </div>
         <textarea id="reprocessCorrections" rows="3" placeholder="e.g. Bar 12 should be in 3/4 time. Key change to Bb major at bar 25." style="width:100%; padding:0.7rem 0.9rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:3px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.9rem; outline:none; resize:vertical; margin-bottom:0.8rem;"></textarea>
         <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
           <div style="display:flex; align-items:center; gap:0.5rem;">
@@ -1149,6 +1152,47 @@
       } finally {
         btn.disabled = false;
         btn.textContent = 'Re-process';
+      }
+    });
+
+    // ── Auto-detect discrepancies ─────────────────────────────────────────
+    document.getElementById('autodetectBtn').addEventListener('click', async () => {
+      if (!currentJobId) return;
+      const btn = document.getElementById('autodetectBtn');
+      const status = document.getElementById('reprocessStatus');
+      btn.disabled = true;
+      btn.textContent = 'Analysing…';
+      status.style.display = 'block';
+      status.style.color = 'var(--teal-light)';
+      status.textContent = 'Comparing original score against recognised version…';
+
+      try {
+        const API = 'https://choralsplit.fly.dev';
+        const fd = new FormData();
+        fd.append('job_id', currentJobId);
+        const res = await fetch(`${API}/api/autodetect`, { method: 'POST', body: fd });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          let detail = `Server error ${res.status}`;
+          try { detail = JSON.parse(text).detail || detail; } catch(_) {}
+          throw new Error(detail);
+        }
+        const data = await res.json();
+        const ta = document.getElementById('reprocessCorrections');
+        const existing = ta.value.trim();
+        const detected = data.corrections || '';
+        if (detected && detected !== 'No discrepancies found.') {
+          ta.value = existing ? `${existing}\n${detected}` : detected;
+          status.textContent = '✓ Discrepancies added to corrections — review and click Re-process.';
+        } else {
+          status.textContent = '✓ No discrepancies detected.';
+        }
+      } catch (err) {
+        status.style.color = '#ff7a7a';
+        status.textContent = `Error: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Auto-detect discrepancies';
       }
     });
 
