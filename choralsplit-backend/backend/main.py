@@ -925,7 +925,17 @@ def autodetect_corrections(
     if not pdf_page_paths:
         raise RuntimeError("No original PDF pages available to compare.")
 
-    xml_text = xml_path.read_text(encoding="utf-8", errors="replace")
+    # MXL is a ZIP-compressed MusicXML — extract the inner XML before reading
+    if xml_path.suffix.lower() == ".mxl":
+        import zipfile as _zipfile
+        with _zipfile.ZipFile(str(xml_path)) as zf:
+            xml_names = [n for n in zf.namelist()
+                         if n.endswith(".xml") and not n.startswith("META-INF")]
+            root_level = [n for n in xml_names if "/" not in n]
+            xml_name = root_level[0] if root_level else xml_names[0]
+            xml_text = zf.read(xml_name).decode("utf-8", errors="replace")
+    else:
+        xml_text = xml_path.read_text(encoding="utf-8", errors="replace")
 
     content: list[dict] = []
 
