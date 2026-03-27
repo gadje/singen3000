@@ -359,6 +359,21 @@
       h1 { font-size:clamp(2.8rem,12vw,4.5rem); }
     }
 
+    /* ── CORRECTION PANEL ── */
+    #correctionPanel {
+      position:fixed; right:-380px; top:0; height:100vh; width:360px;
+      background:#141f20; border-left:1px solid rgba(255,255,255,0.08);
+      z-index:300; padding:1.5rem;
+      display:flex; flex-direction:column;
+      transition:right 0.3s ease;
+      overflow:hidden;
+    }
+    #correctionPanel.open { right:0; }
+
+    /* Error measure highlight */
+    g.has-error { cursor:pointer; }
+    .error-measure-overlay { pointer-events:none; }
+
     /* ── PASSWORD GATE ── */
     #gate {
       position:fixed; inset:0; z-index:900;
@@ -650,6 +665,21 @@
     <p>Part Splitter · powered by Audiveris &amp; music21</p>
   </footer>
 
+  <!-- CORRECTION PANEL -->
+  <div id="correctionPanel">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">
+      <div>
+        <p style="font-size:0.68rem; letter-spacing:0.24em; text-transform:uppercase; color:var(--teal); font-weight:700; margin-bottom:0.15rem;">Bar</p>
+        <p id="corrBarNum" style="font-family:'Germania One',cursive; font-size:2rem; color:#fff; line-height:1;"></p>
+      </div>
+      <button id="corrClose" style="background:none; border:none; color:rgba(255,255,255,0.3); cursor:pointer; font-size:1.5rem; padding:0; line-height:1; margin-top:0.1rem;">×</button>
+    </div>
+    <p id="corrErrorMsg" style="font-size:0.78rem; color:rgba(255,140,120,0.75); line-height:1.55; margin-bottom:1.2rem; padding:0.55rem 0.75rem; background:rgba(200,55,55,0.07); border:1px solid rgba(200,55,55,0.18); border-radius:4px;"></p>
+    <p style="font-size:0.72rem; color:rgba(255,255,255,0.28); line-height:1.6; margin-bottom:0.8rem;">Describe what this bar should contain. Haiku will translate it into a MusicXML correction when you re-process.</p>
+    <textarea id="corrInput" rows="4" placeholder="e.g. Soprano: D5 crotchet, E5 crotchet, F5 minim" style="width:100%; padding:0.6rem 0.8rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:4px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.85rem; outline:none; resize:vertical; transition:border-color 0.2s; margin-bottom:0.7rem;"></textarea>
+    <button id="corrApply" style="width:100%; padding:0.6rem; background:none; border:1px solid rgba(212,184,74,0.4); color:var(--yellow); font-family:'Nunito',sans-serif; font-size:0.8rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; border-radius:4px; cursor:pointer; transition:opacity 0.2s;">Add correction</button>
+  </div>
+
   <script>
     // ── Password gate ──────────────────────────────────────────────────────
     // To change the password:
@@ -767,6 +797,7 @@
       document.getElementById('reprocessBpm').value = '';
       const rs = document.getElementById('reprocessStatus');
       rs.style.display = 'none'; rs.textContent = '';
+      document.getElementById('correctionPanel').classList.remove('open');
     }
 
     function activateStage(n) {
@@ -877,23 +908,98 @@
       fileInput.value = '';
     }
 
-    function renderPreview(preview, base) {
+    async function renderPreviewInline(preview, base, errorBars) {
       if (!preview) return;
       const origDiv = document.getElementById('previewOrigPages');
       const svgDiv  = document.getElementById('previewSvgPages');
+
+      // Build bar → error message map (bar numbers are 1-based integers)
+      const errorBarMap = {};
+      (errorBars || []).forEach(e => { errorBarMap[Number(e.bar)] = e.message; });
+
+      // Original PDF pages — keep as <img>
       (preview.pdf_pages || []).forEach(url => {
         const img = document.createElement('img');
         img.src = base + url;
         img.style.cssText = 'width:100%; display:block; margin-bottom:3px; border-radius:2px;';
         origDiv.appendChild(img);
       });
-      (preview.svg_pages || []).forEach(url => {
-        const img = document.createElement('img');
-        img.src = base + url;
-        img.style.cssText = 'width:100%; display:block; margin-bottom:3px; border-radius:2px;';
-        svgDiv.appendChild(img);
-      });
+
+      // Show section early so getBBox works on inline SVGs
       document.getElementById('previewSection').style.display = 'block';
+
+      let globalBarIdx = 0;
+      for (const url of (preview.svg_pages || [])) {
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'position:relative; margin-bottom:3px;';
+        try {
+          const resp = await fetch(base + url);
+          const svgText = await resp.text();
+          wrapper.innerHTML = svgText;
+          const svgEl = wrapper.querySelector('svg');
+          if (svgEl) {
+            svgEl.style.cssText = 'width:100%; height:auto; display:block; border-radius:2px;';
+            svgDiv.appendChild(wrapper);
+            // Find measure groups — Verovio uses g[class~="measure"]
+            const measureEls = svgEl.querySelectorAll('g[class~="measure"]');
+            measureEls.forEach(m => {
+              globalBarIdx++;
+              if (errorBarMap[globalBarIdx] !== undefined) {
+                addMeasureHighlight(svgEl, m, globalBarIdx, errorBarMap[globalBarIdx]);
+              }
+            });
+          } else {
+            throw new Error('no svg');
+          }
+        } catch (_) {
+          // Fallback to <img> if fetch/parse fails
+          const img = document.createElement('img');
+          img.src = base + url;
+          img.style.cssText = 'width:100%; display:block; border-radius:2px;';
+          wrapper.innerHTML = '';
+          wrapper.appendChild(img);
+          svgDiv.appendChild(wrapper);
+        }
+      }
+    }
+
+    function addMeasureHighlight(svgEl, measureEl, barNum, errorMsg) {
+      try {
+        const bbox = measureEl.getBBox();
+        if (bbox.width === 0 && bbox.height === 0) return; // not rendered yet
+
+        const ns = 'http://www.w3.org/2000/svg';
+
+        // Red fill rect behind the measure content
+        const rect = document.createElementNS(ns, 'rect');
+        rect.setAttribute('x', bbox.x - 1);
+        rect.setAttribute('y', bbox.y - 2);
+        rect.setAttribute('width', bbox.width + 2);
+        rect.setAttribute('height', bbox.height + 4);
+        rect.setAttribute('fill', 'rgba(220,55,55,0.12)');
+        rect.setAttribute('stroke', 'rgba(220,70,70,0.65)');
+        rect.setAttribute('stroke-width', '1.5');
+        rect.setAttribute('rx', '2');
+        rect.setAttribute('class', 'error-measure-overlay');
+        measureEl.insertBefore(rect, measureEl.firstChild);
+
+        // Small warning label above the measure
+        const lbl = document.createElementNS(ns, 'text');
+        lbl.setAttribute('x', bbox.x + 2);
+        lbl.setAttribute('y', bbox.y - 3);
+        lbl.setAttribute('font-size', '9');
+        lbl.setAttribute('fill', 'rgba(230,80,80,0.9)');
+        lbl.setAttribute('font-family', 'Nunito, sans-serif');
+        lbl.setAttribute('font-weight', '700');
+        lbl.setAttribute('class', 'error-measure-overlay');
+        lbl.textContent = `⚠ ${barNum}`;
+        svgEl.appendChild(lbl);
+
+        measureEl.classList.add('has-error');
+        measureEl.addEventListener('click', () => showCorrectionPanel(barNum, errorMsg));
+      } catch (_) {
+        // getBBox unavailable — skip visual highlight
+      }
     }
 
     function renderResults(data, base) {
@@ -901,7 +1007,7 @@
       document.getElementById('resultsHeader').textContent =
         `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
 
-      renderPreview(data.preview, base);
+      renderPreviewInline(data.preview, base, data.error_bars || []);
 
       // Show error bars + reprocess panel
       const errors = data.error_bars || [];
@@ -1032,6 +1138,35 @@
         btn.textContent = 'Re-process';
       }
     });
+
+    // ── Correction Panel ──────────────────────────────────────────────────
+    let corrCurrentBar = null;
+
+    function showCorrectionPanel(barNum, errorMsg) {
+      corrCurrentBar = barNum;
+      document.getElementById('corrBarNum').textContent = barNum;
+      document.getElementById('corrErrorMsg').textContent = errorMsg;
+      document.getElementById('corrInput').value = '';
+      document.getElementById('correctionPanel').classList.add('open');
+      setTimeout(() => document.getElementById('corrInput').focus(), 320);
+    }
+
+    document.getElementById('corrClose').addEventListener('click', () => {
+      document.getElementById('correctionPanel').classList.remove('open');
+    });
+
+    document.getElementById('corrApply').addEventListener('click', () => {
+      const text = document.getElementById('corrInput').value.trim();
+      if (!text) return;
+      // Prefix with bar number so parse_corrections_with_llm has full context
+      const line = `Bar ${corrCurrentBar}: ${text}`;
+      const ta = document.getElementById('reprocessCorrections');
+      const existing = ta.value.trim();
+      ta.value = existing ? `${existing}\n${line}` : line;
+      document.getElementById('correctionPanel').classList.remove('open');
+      document.getElementById('reprocessPanel').scrollIntoView({ behavior: 'smooth' });
+    });
+    // ── End Correction Panel ──────────────────────────────────────────────
 
     function escHtml(s) {
       return String(s)
