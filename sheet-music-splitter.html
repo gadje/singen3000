@@ -1164,7 +1164,7 @@
       btn.textContent = 'Analysing…';
       status.style.display = 'block';
       status.style.color = 'var(--teal-light)';
-      status.textContent = 'Comparing original score against recognised version…';
+      status.textContent = 'Comparing original score against MusicXML — this may take a moment…';
 
       try {
         const API = 'https://choralsplit.fly.dev';
@@ -1178,15 +1178,51 @@
           throw new Error(detail);
         }
         const data = await res.json();
-        const ta = document.getElementById('reprocessCorrections');
-        const existing = ta.value.trim();
-        const detected = data.corrections || '';
-        if (detected && detected !== 'No discrepancies found.') {
-          ta.value = existing ? `${existing}\n${detected}` : detected;
-          status.textContent = '✓ Discrepancies added to corrections — review and click Re-process.';
-        } else {
-          status.textContent = '✓ No discrepancies detected.';
+
+        if (!data.corrections_count) {
+          status.textContent = '✓ No corrections needed — score matches original.';
+          return;
         }
+
+        // Corrections were applied and new audio generated — refresh the UI
+        currentJobId = data.job_id || currentJobId;
+        document.getElementById('resultsHeader').textContent =
+          `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
+
+        if (data.preview && data.preview.svg_pages) {
+          document.getElementById('previewSvgPages').innerHTML = '';
+          renderPreviewInline({ pdf_pages: [], svg_pages: data.preview.svg_pages }, API, []);
+        }
+
+        partList.innerHTML = '';
+        if (data.all_mp3_url) {
+          const item = document.createElement('div');
+          item.className = 'part-item';
+          item.style.borderColor = 'rgba(212,184,74,0.25)';
+          item.innerHTML = `
+            <div>
+              <div class="part-name" style="color:var(--yellow-l)">All parts</div>
+              <div class="part-meta">Combined score</div>
+            </div>
+            <a class="btn-download" href="${API}${escHtml(data.all_mp3_url)}" download="All parts.mp3">Download</a>
+          `;
+          partList.appendChild(item);
+        }
+        data.parts.forEach(part => {
+          const item = document.createElement('div');
+          item.className = 'part-item';
+          item.innerHTML = `
+            <div>
+              <div class="part-name">${escHtml(part.name)}</div>
+              <div class="part-meta">${part.note_count ?? '—'} notes</div>
+            </div>
+            <a class="btn-download" href="${API}${escHtml(part.mp3_url)}" download="${escHtml(part.name)}.mp3">Download</a>
+          `;
+          partList.appendChild(item);
+        });
+        downloadAll.href = `${API}${data.zip_url}`;
+        status.textContent = `✓ Applied ${data.corrections_count} correction${data.corrections_count !== 1 ? 's' : ''} and regenerated audio.`;
+
       } catch (err) {
         status.style.color = '#ff7a7a';
         status.textContent = `Error: ${err.message}`;

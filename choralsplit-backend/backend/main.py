@@ -945,43 +945,62 @@ def autodetect_corrections(
     )})
 
     content.append({"type": "text", "text": (
-        "The MusicXML above is what Audiveris (optical music recognition) extracted "
-        "from the score shown in the images. Compare it carefully against the original.\n\n"
-        "List every musical discrepancy: wrong pitch, wrong rhythm, missing or extra "
-        "notes, wrong accidental, wrong key signature, wrong time signature, etc.\n"
-        "For each issue state the bar number (measure number in the XML, counting from 1 "
-        "continuously across the whole piece) and the affected part/voice.\n\n"
-        "Format each discrepancy on its own line, e.g.:\n"
-        "Bar 7, Bass: should be E2 minim, not D2 minim\n"
-        "Bar 12, Soprano: missing dotted crotchet — should be F#5 dotted crotchet + quaver rest\n"
-        "Bar 20, all parts: key signature should be Bb major, not C major\n\n"
-        "If you find no discrepancies, write exactly: No discrepancies found."
+        "The MusicXML above was extracted from the score shown in the images by an optical "
+        "music recognition engine. The images are the ground truth.\n\n"
+        "Output a JSON array of correction objects that will bring the MusicXML into exact "
+        "agreement with the original score. Only include bars that need changing.\n\n"
+        "Each object must have:\n"
+        "  \"bar\": integer measure number (1-based, counting continuously across pages)\n"
+        "  \"part\": voice/part string — use \"Soprano\", \"Alto\", \"Tenor\", \"Bass\", "
+        "\"top\", \"bottom\", a 1-based integer index, or \"all\" for key/tempo/time_sig changes\n"
+        "  \"type\": one of \"key\", \"tempo\", \"time_signature\", \"replace_notes\", \"delete_notes\"\n"
+        "  \"value\": for key: music21 string e.g. \"B- major\" or \"f# minor\"; "
+        "for tempo: integer BPM; for time_signature: e.g. \"3/4\"; "
+        "for replace_notes: array of note objects (see below); for delete_notes: null\n\n"
+        "Note objects for replace_notes:\n"
+        "  Single note:  {\"pitch\": \"D5\", \"duration\": 1.0}\n"
+        "  Chord:        {\"pitches\": [\"E2\",\"B2\"], \"duration\": 2.0}\n"
+        "  Rest:         {\"rest\": true, \"duration\": 1.0}\n"
+        "Durations in quarter-note lengths: whole=4.0, half=2.0, quarter=1.0, "
+        "eighth=0.5, dotted-half=3.0, dotted-quarter=1.5.\n"
+        "Use scientific pitch notation (C4=middle C). Sharps: \"F#5\". Flats: \"Bb3\".\n\n"
+        "Return ONLY the JSON array, no prose. If nothing needs correcting, return []."
     )})
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2048,
+        max_tokens=4096,
         system=(
-            "You are a meticulous music score proofreader. You will be given images of "
-            "the original printed score alongside the MusicXML that a computer extracted "
-            "from it. Your job is to find every place where the MusicXML does not match "
-            "the original. Focus on musical content only — pitches, rhythms, rests, "
-            "accidentals, articulations, key signatures, time signatures. "
-            "Ignore layout differences such as beam angles, spacing, or page breaks."
+            "You are a music score correction engine. You receive images of an original "
+            "printed score and the MusicXML that a computer extracted from it. "
+            "The images are always the ground truth. "
+            "Your sole output is a JSON array of correction instructions that transform "
+            "the MusicXML to exactly match the original. "
+            "Focus on musical content only: pitches, rhythms, rests, accidentals, "
+            "key signatures, time signatures. Ignore layout and engraving differences."
         ),
         messages=[{"role": "user", "content": content}],
     )
 
     if not response.content:
         raise RuntimeError("Vision comparison returned no content.")
-    return response.content[0].text.strip()
+
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+    instructions = json.loads(raw)   # raises JSONDecodeError if Sonnet misbehaves
+    if isinstance(instructions, dict):
+        instructions = next((v for v in instructions.values() if isinstance(v, list)), [])
+    return instructions  # list[dict]
 
 
 @app.post("/api/autodetect")
 async def autodetect_score_corrections(job_id: str = Form(...)):
-    """Compare the original PDF pages against the job's MusicXML using vision.
-    Returns a natural-language corrections string ready for the reprocess textarea."""
+    """Compare the original PDF pages against the job's MusicXML using Sonnet vision.
+    Applies the corrections immediately and returns updated SVG + audio, exactly
+    like /api/reprocess but with corrections sourced from the vision model."""
     job_dir = JOBS_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(
@@ -993,28 +1012,94 @@ async def autodetect_score_corrections(job_id: str = Form(...)):
         raise HTTPException(
             422, detail="Original PDF pages not found for this job. Re-upload to regenerate.")
 
-    # Use the corrected XML if the user has already made a pass, otherwise
-    # use the raw Audiveris output so we catch everything from the start.
-    corrected = job_dir / "corrected.xml"
+    # Always compare against the raw Audiveris output so every pass starts
+    # from the OMR baseline, not a previously-corrected version.
     audiveris_xmls = (
         list((job_dir / "audiveris").rglob("*.xml")) +
         list((job_dir / "audiveris").rglob("*.mxl"))
     )
-    if corrected.exists():
-        xml_path = corrected
-    elif audiveris_xmls:
-        xml_path = audiveris_xmls[0]
-    else:
+    if not audiveris_xmls:
         raise HTTPException(
             422, detail="MusicXML not found for this job. Re-upload to regenerate.")
+    base_xml = audiveris_xmls[0]
 
     try:
-        text = autodetect_corrections(pdf_pages, xml_path)
-        return {"corrections": text}
+        instructions = autodetect_corrections(pdf_pages, base_xml)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(422, detail=f"Could not parse correction JSON from vision model: {exc}")
     except RuntimeError as exc:
         raise HTTPException(422, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(500, detail=f"Unexpected error: {exc}")
+        raise HTTPException(500, detail=f"Unexpected error during vision comparison: {exc}")
+
+    if not instructions:
+        return {"corrections_count": 0, "message": "No corrections needed."}
+
+    try:
+        import music21
+        score = music21.converter.parse(str(base_xml))
+        apply_corrections(score, instructions)
+        corrected_xml = job_dir / "corrected.xml"
+        score.write("musicxml", fp=str(corrected_xml))
+
+        # Regenerate SVG preview
+        preview = None
+        try:
+            preview_dir.mkdir(exist_ok=True)
+            for old_svg in preview_dir.glob("score-*.svg"):
+                old_svg.unlink()
+            clean_xml = preview_dir / "score_clean.xml"
+            try:
+                strip_dynamics_from_xml(corrected_xml, clean_xml)
+                render_xml = clean_xml
+            except Exception:
+                render_xml = corrected_xml
+            svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+            preview = {
+                "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths]
+            }
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+        # Regenerate audio
+        midi_out = job_dir / "midi"
+        if midi_out.exists():
+            shutil.rmtree(midi_out)
+        midi_out.mkdir()
+        split_result = split_parts(corrected_xml, midi_out, "auto", bpm=None)
+        parts = split_result["parts"]
+        all_midi_path = split_result["all_midi_path"]
+        for p in parts:
+            p["mp3_path"] = midi_to_mp3(p["midi_path"])
+        all_mp3_path = midi_to_mp3(all_midi_path)
+        zip_path = job_dir / "all_parts.zip"
+        make_zip(
+            [p["midi_path"] for p in parts] + [p["mp3_path"] for p in parts]
+            + [all_midi_path, all_mp3_path],
+            zip_path,
+        )
+
+        return {
+            "job_id": job_id,
+            "corrections_count": len(instructions),
+            "parts": [
+                {
+                    "name": p["name"],
+                    "mp3_url": f"/files/{job_id}/midi/{p['mp3_path'].name}",
+                    "note_count": p["note_count"],
+                }
+                for p in parts
+            ],
+            "all_mp3_url": f"/files/{job_id}/midi/{all_mp3_path.name}",
+            "zip_url": f"/files/{job_id}/all_parts.zip",
+            "preview": preview,
+        }
+
+    except RuntimeError as exc:
+        raise HTTPException(422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(500, detail=f"Unexpected error applying corrections: {exc}")
 
 
 @app.get("/health")
