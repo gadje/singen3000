@@ -1178,50 +1178,18 @@
           throw new Error(detail);
         }
         const data = await res.json();
+        const detected = (data.corrections || '').trim();
 
-        if (!data.corrections_count) {
+        if (!detected || detected.toLowerCase().startsWith('no corrections')) {
           status.textContent = '✓ No corrections needed — score matches original.';
           return;
         }
 
-        // Corrections were applied and new audio generated — refresh the UI
-        currentJobId = data.job_id || currentJobId;
-        document.getElementById('resultsHeader').textContent =
-          `${data.parts.length} part${data.parts.length !== 1 ? 's' : ''} extracted`;
-
-        if (data.preview && data.preview.svg_pages) {
-          document.getElementById('previewSvgPages').innerHTML = '';
-          renderPreviewInline({ pdf_pages: [], svg_pages: data.preview.svg_pages }, API, []);
-        }
-
-        partList.innerHTML = '';
-        if (data.all_mp3_url) {
-          const item = document.createElement('div');
-          item.className = 'part-item';
-          item.style.borderColor = 'rgba(212,184,74,0.25)';
-          item.innerHTML = `
-            <div>
-              <div class="part-name" style="color:var(--yellow-l)">All parts</div>
-              <div class="part-meta">Combined score</div>
-            </div>
-            <a class="btn-download" href="${API}${escHtml(data.all_mp3_url)}" download="All parts.mp3">Download</a>
-          `;
-          partList.appendChild(item);
-        }
-        data.parts.forEach(part => {
-          const item = document.createElement('div');
-          item.className = 'part-item';
-          item.innerHTML = `
-            <div>
-              <div class="part-name">${escHtml(part.name)}</div>
-              <div class="part-meta">${part.note_count ?? '—'} notes</div>
-            </div>
-            <a class="btn-download" href="${API}${escHtml(part.mp3_url)}" download="${escHtml(part.name)}.mp3">Download</a>
-          `;
-          partList.appendChild(item);
-        });
-        downloadAll.href = `${API}${data.zip_url}`;
-        status.textContent = `✓ Applied ${data.corrections_count} correction${data.corrections_count !== 1 ? 's' : ''} and regenerated audio.`;
+        const ta = document.getElementById('reprocessCorrections');
+        const existing = ta.value.trim();
+        ta.value = existing ? `${existing}\n${detected}` : detected;
+        status.textContent = '✓ Corrections added — review above and click Re-process.';
+        ta.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
       } catch (err) {
         status.style.color = '#ff7a7a';
