@@ -176,10 +176,26 @@ def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
 def strip_dynamics_from_xml(xml_path: Path, out_path: Path) -> None:
     """Write a copy of the MusicXML with all dynamic/hairpin directions removed.
     Audiveris sometimes misreads notes as dynamics; stripping them gives a cleaner
-    SVG preview and avoids spurious MIDI volume changes."""
+    SVG preview and avoids spurious MIDI volume changes.
+    Handles both plain .xml and compressed .mxl (ZIP) MusicXML files."""
     import xml.etree.ElementTree as ET
+    import zipfile as _zipfile
 
-    tree = ET.parse(str(xml_path))
+    if xml_path.suffix.lower() == ".mxl":
+        # MXL is a ZIP-compressed MusicXML — extract the inner XML first
+        with _zipfile.ZipFile(str(xml_path)) as zf:
+            xml_names = [n for n in zf.namelist()
+                         if n.endswith(".xml") and not n.startswith("META-INF")]
+            if not xml_names:
+                raise ValueError(f"No XML entry found inside MXL: {xml_path}")
+            # Prefer root-level files (e.g. "score.xml" rather than nested paths)
+            root_level = [n for n in xml_names if "/" not in n]
+            xml_name = root_level[0] if root_level else xml_names[0]
+            xml_bytes = zf.read(xml_name)
+        tree = ET.ElementTree(ET.fromstring(xml_bytes.decode("utf-8", errors="replace")))
+    else:
+        tree = ET.parse(str(xml_path))
+
     root = tree.getroot()
     ns = root.tag.split("}")[0] + "}" if root.tag.startswith("{") else ""
 
@@ -688,14 +704,19 @@ async def split_score(
             pdf_page_paths = render_pdf_pages(pdf_path, preview_dir)
             # Strip dynamics before rendering so the SVG shows clean notation
             clean_xml = preview_dir / "score_clean.xml"
-            strip_dynamics_from_xml(xml_path, clean_xml)
-            svg_page_paths = render_musicxml_svg(clean_xml, preview_dir)
+            try:
+                strip_dynamics_from_xml(xml_path, clean_xml)
+                render_xml = clean_xml
+            except Exception:
+                render_xml = xml_path  # fall back to original if stripping fails
+            svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
             preview = {
                 "pdf_pages": [f"/files/{job_id}/preview/{p.name}" for p in pdf_page_paths],
                 "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
             }
         except Exception:
-            pass  # preview is optional; never break the main pipeline
+            import traceback
+            traceback.print_exc()  # visible in server logs; preview is optional
 
         # 4. Split parts with music21
         midi_out = job_dir / "midi"
@@ -790,8 +811,12 @@ async def reprocess_score(
             for old_svg in preview_dir.glob("score-*.svg"):
                 old_svg.unlink()
             clean_xml = preview_dir / "score_clean.xml"
-            strip_dynamics_from_xml(working_xml, clean_xml)
-            svg_page_paths = render_musicxml_svg(clean_xml, preview_dir)
+            try:
+                strip_dynamics_from_xml(working_xml, clean_xml)
+                render_xml = clean_xml
+            except Exception:
+                render_xml = working_xml
+            svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
             preview = {
                 "svg_pages": [
                     f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths
