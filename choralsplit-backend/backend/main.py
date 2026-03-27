@@ -907,77 +907,50 @@ def _apply_and_save_xml(
     score.write("musicxml", fp=str(out_path))
 
 
-def _svg_to_png(svg_path: Path) -> Path:
-    """Rasterise a Verovio SVG to PNG for use in vision API calls.
-    Tries cairosvg first (pure-Python), falls back to ImageMagick."""
-    png_path = svg_path.with_suffix(".png")
-    try:
-        import cairosvg  # type: ignore
-        cairosvg.svg2png(url=str(svg_path), write_to=str(png_path), dpi=150)
-    except Exception:
-        subprocess.run(
-            ["convert", "-background", "white", "-flatten",
-             "-density", "150", str(svg_path), str(png_path)],
-            check=True, capture_output=True, timeout=60,
-        )
-    return png_path
-
-
 def autodetect_corrections(
     pdf_page_paths: list[Path],
-    svg_page_paths: list[Path],
+    xml_path: Path,
 ) -> str:
-    """Compare original PDF page images against Verovio-rendered SVG pages using
-    Claude Sonnet vision.  Returns a natural-language description of every
-    discrepancy found, suitable for pasting into the corrections textarea."""
+    """Compare original PDF page images against the Audiveris MusicXML using
+    Claude Sonnet vision + text.  The model reads note data directly from the
+    XML rather than from a visual rendering of it, giving a single visual
+    interpretation step (the original PDF) instead of two.
+    Returns a natural-language description of every discrepancy found."""
     if not ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY is not configured on the server.")
 
     import anthropic
     import base64
 
-    # Rasterise SVG pages to PNG; skip any that fail
-    png_pages: list[Path] = []
-    for svgp in svg_page_paths:
-        try:
-            png_pages.append(_svg_to_png(svgp))
-        except Exception:
-            pass
+    if not pdf_page_paths:
+        raise RuntimeError("No original PDF pages available to compare.")
 
-    if not pdf_page_paths and not png_pages:
-        raise RuntimeError("No pages available to compare.")
+    xml_text = xml_path.read_text(encoding="utf-8", errors="replace")
 
-    # Build the message: all original pages first, then all recognised pages.
-    # Labelling them clearly lets the model match sections even when page
-    # counts differ between the original layout and the Verovio layout.
     content: list[dict] = []
 
-    def _img_block(path: Path, media_type: str) -> dict:
-        return {
+    for i, p in enumerate(pdf_page_paths[:10], 1):   # cap at 10 pages
+        content.append({"type": "text", "text": f"=== ORIGINAL SCORE — page {i} ==="})
+        content.append({
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": media_type,
-                "data": base64.standard_b64encode(path.read_bytes()).decode(),
+                "media_type": "image/jpeg",
+                "data": base64.standard_b64encode(p.read_bytes()).decode(),
             },
-        }
-
-    for i, p in enumerate(pdf_page_paths[:10], 1):   # cap at 10 pages each side
-        content.append({"type": "text", "text": f"=== ORIGINAL SCORE — page {i} ==="})
-        content.append(_img_block(p, "image/jpeg"))
-
-    for i, p in enumerate(png_pages[:10], 1):
-        content.append({"type": "text", "text": f"=== COMPUTER-RECOGNISED SCORE — page {i} ==="})
-        content.append(_img_block(p, "image/png"))
+        })
 
     content.append({"type": "text", "text": (
-        "Compare the ORIGINAL SCORE pages against the COMPUTER-RECOGNISED SCORE pages. "
-        "The two versions may have different page layouts but contain the same music.\n\n"
-        "List every musical discrepancy you find: wrong pitch, wrong rhythm, missing or "
-        "extra notes, wrong accidental, wrong key signature, wrong time signature, etc. "
-        "For each issue state the bar number (counting from bar 1 at the start of the piece, "
-        "continuously across pages) and the affected voice or part "
-        "(e.g. Soprano, Alto, Tenor, Bass, or top/bottom if unlabelled).\n\n"
+        "=== COMPUTER-RECOGNISED SCORE (MusicXML) ===\n" + xml_text
+    )})
+
+    content.append({"type": "text", "text": (
+        "The MusicXML above is what Audiveris (optical music recognition) extracted "
+        "from the score shown in the images. Compare it carefully against the original.\n\n"
+        "List every musical discrepancy: wrong pitch, wrong rhythm, missing or extra "
+        "notes, wrong accidental, wrong key signature, wrong time signature, etc.\n"
+        "For each issue state the bar number (measure number in the XML, counting from 1 "
+        "continuously across the whole piece) and the affected part/voice.\n\n"
         "Format each discrepancy on its own line, e.g.:\n"
         "Bar 7, Bass: should be E2 minim, not D2 minim\n"
         "Bar 12, Soprano: missing dotted crotchet — should be F#5 dotted crotchet + quaver rest\n"
@@ -990,9 +963,11 @@ def autodetect_corrections(
         model="claude-sonnet-4-6",
         max_tokens=2048,
         system=(
-            "You are a meticulous music score proofreader. "
-            "Focus on musical content only — pitches, rhythms, rests, accidentals, "
-            "articulations, key signatures, time signatures. "
+            "You are a meticulous music score proofreader. You will be given images of "
+            "the original printed score alongside the MusicXML that a computer extracted "
+            "from it. Your job is to find every place where the MusicXML does not match "
+            "the original. Focus on musical content only — pitches, rhythms, rests, "
+            "accidentals, articulations, key signatures, time signatures. "
             "Ignore layout differences such as beam angles, spacing, or page breaks."
         ),
         messages=[{"role": "user", "content": content}],
@@ -1005,7 +980,7 @@ def autodetect_corrections(
 
 @app.post("/api/autodetect")
 async def autodetect_score_corrections(job_id: str = Form(...)):
-    """Compare the original PDF pages against the Verovio SVG pages for a job.
+    """Compare the original PDF pages against the job's MusicXML using vision.
     Returns a natural-language corrections string ready for the reprocess textarea."""
     job_dir = JOBS_DIR / job_id
     if not job_dir.exists():
@@ -1014,15 +989,27 @@ async def autodetect_score_corrections(job_id: str = Form(...)):
 
     preview_dir = job_dir / "preview"
     pdf_pages = sorted(preview_dir.glob("orig-*.jpg")) if preview_dir.exists() else []
-    svg_pages = sorted(preview_dir.glob("score-*.svg")) if preview_dir.exists() else []
-
-    if not pdf_pages or not svg_pages:
+    if not pdf_pages:
         raise HTTPException(
-            422, detail="Preview pages not found for this job. "
-                        "Re-upload to regenerate them.")
+            422, detail="Original PDF pages not found for this job. Re-upload to regenerate.")
+
+    # Use the corrected XML if the user has already made a pass, otherwise
+    # use the raw Audiveris output so we catch everything from the start.
+    corrected = job_dir / "corrected.xml"
+    audiveris_xmls = (
+        list((job_dir / "audiveris").rglob("*.xml")) +
+        list((job_dir / "audiveris").rglob("*.mxl"))
+    )
+    if corrected.exists():
+        xml_path = corrected
+    elif audiveris_xmls:
+        xml_path = audiveris_xmls[0]
+    else:
+        raise HTTPException(
+            422, detail="MusicXML not found for this job. Re-upload to regenerate.")
 
     try:
-        text = autodetect_corrections(pdf_pages, svg_pages)
+        text = autodetect_corrections(pdf_pages, xml_path)
         return {"corrections": text}
     except RuntimeError as exc:
         raise HTTPException(422, detail=str(exc))
