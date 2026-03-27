@@ -204,8 +204,7 @@ def strip_dynamics_from_xml(xml_path: Path, out_path: Path) -> None:
         for el in to_remove:
             measure.remove(el)
 
-    ET.register_namespace("", "http://www.w3.org/2000/svg")
-    tree.write(str(out_path), xml_declaration=True, encoding="unicode")
+    tree.write(str(out_path), xml_declaration=True, encoding="UTF-8")
 
 
 # ── music21 splitting ────────────────────────────────────────────────────────
