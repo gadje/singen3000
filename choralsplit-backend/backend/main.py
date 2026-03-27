@@ -994,13 +994,30 @@ def autodetect_corrections(
     )
 
     if not response.content:
-        raise RuntimeError("Vision comparison returned no content.")
+        raise RuntimeError(
+            f"Vision model returned no content (stop_reason={response.stop_reason!r}).")
 
     raw = response.content[0].text.strip()
+
+    # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-    instructions = json.loads(raw)   # raises JSONDecodeError if Sonnet misbehaves
+    if not raw:
+        raise RuntimeError(
+            "Vision model returned an empty response. "
+            f"Stop reason: {response.stop_reason!r}. "
+            "The score images or MusicXML may be too large — try a shorter score.")
+
+    try:
+        instructions = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Vision model did not return valid JSON. "
+            f"Stop reason: {response.stop_reason!r}. "
+            f"First 300 chars of response: {raw[:300]!r}"
+        ) from exc
+
     if isinstance(instructions, dict):
         instructions = next((v for v in instructions.values() if isinstance(v, list)), [])
     return instructions  # list[dict]
@@ -1035,8 +1052,6 @@ async def autodetect_score_corrections(job_id: str = Form(...)):
 
     try:
         instructions = autodetect_corrections(pdf_pages, base_xml)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(422, detail=f"Could not parse correction JSON from vision model: {exc}")
     except RuntimeError as exc:
         raise HTTPException(422, detail=str(exc))
     except Exception as exc:
