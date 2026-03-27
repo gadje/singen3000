@@ -566,7 +566,13 @@ def apply_corrections(score, instructions: list[dict]):
                 if change_type == "key":
                     for ks in measure.getElementsByClass("KeySignature"):
                         measure.remove(ks)
-                    measure.insert(0, music21.key.Key(value))
+                    # value is e.g. "B- major" or "f# minor" — split into tonic + mode
+                    key_parts = str(value).split(None, 1)
+                    if len(key_parts) == 2:
+                        key_obj = music21.key.Key(key_parts[0], key_parts[1])
+                    else:
+                        key_obj = music21.key.Key(key_parts[0])
+                    measure.insert(0, key_obj)
 
                 elif change_type == "tempo":
                     for mm in measure.getElementsByClass("MetronomeMark"):
