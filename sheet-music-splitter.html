@@ -521,6 +521,15 @@
 
     <div class="options-row reveal">
       <div class="option-group">
+        <label>OMR engine</label>
+        <select id="omrEngine">
+          <option value="audiveris">Audiveris — general purpose</option>
+          <option value="musescore">MuseScore — typeset PDFs</option>
+          <option value="oemer">Oemer — scanned scores</option>
+        </select>
+        <span id="omrHint" style="display:block; font-size:0.72rem; color:rgba(255,255,255,0.3); margin-top:0.35rem; line-height:1.4;"></span>
+      </div>
+      <div class="option-group">
         <label>Score format</label>
         <select id="scoreFormat">
           <option value="auto">Auto-detect</option>
@@ -623,7 +632,7 @@
         <p style="font-size:0.78rem; color:rgba(255,255,255,0.35); margin-bottom:1rem;">Describe corrections below and click <strong style="color:rgba(255,255,255,0.6);">Re-process</strong> to regenerate the audio without re-running Audiveris.</p>
         <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:0.4rem;">
           <label style="font-size:0.75rem; color:rgba(255,255,255,0.4); letter-spacing:0.1em; text-transform:uppercase;">Corrections</label>
-          <button id="autodetectBtn" style="padding:0.3rem 0.8rem; background:rgba(61,138,140,0.18); color:var(--teal-light); font-family:'Nunito',sans-serif; font-weight:700; font-size:0.72rem; letter-spacing:0.06em; border:1px solid rgba(61,138,140,0.35); border-radius:3px; cursor:pointer; transition:opacity 0.2s;">Auto-detect discrepancies</button>
+          <button id="autodetectBtn" style="padding:0.3rem 0.8rem; background:rgba(61,138,140,0.18); color:var(--teal-light); font-family:'Nunito',sans-serif; font-weight:700; font-size:0.72rem; letter-spacing:0.06em; border:1px solid rgba(61,138,140,0.35); border-radius:3px; cursor:pointer; transition:opacity 0.2s;">Auto-correct</button>
         </div>
         <textarea id="reprocessCorrections" rows="3" placeholder="e.g. Bar 12 should be in 3/4 time. Key change to Bb major at bar 25." style="width:100%; padding:0.7rem 0.9rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:3px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.9rem; outline:none; resize:vertical; margin-bottom:0.8rem;"></textarea>
         <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
@@ -760,6 +769,19 @@
 
     fileInput.addEventListener('change', () => { if(fileInput.files[0]) setFile(fileInput.files[0]); });
 
+    // ── OMR engine hint ───────────────────────────────────────────────────
+    const omrHints = {
+      audiveris: 'Good all-rounder. Works on both typeset and scanned scores.',
+      musescore:  'Best accuracy for digitally typeset PDFs (exported from Sibelius, Finale, etc.).',
+      oemer:      'Deep-learning engine — best for scanned or photographed printed scores.',
+    };
+    function updateOmrHint() {
+      const val = document.getElementById('omrEngine').value;
+      document.getElementById('omrHint').textContent = omrHints[val] || '';
+    }
+    document.getElementById('omrEngine').addEventListener('change', updateOmrHint);
+    updateOmrHint(); // set on load
+
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
     dropZone.addEventListener('drop', e => {
@@ -831,6 +853,7 @@
       const API = 'https://choralsplit.fly.dev';
       const formData = new FormData();
       formData.append('file', selectedFile);
+      formData.append('omr_engine', document.getElementById('omrEngine').value);
       formData.append('score_format', document.getElementById('scoreFormat').value);
       formData.append('part_count', document.getElementById('partCount').value);
       const tempo = document.getElementById('tempoBpm').value;
@@ -842,6 +865,10 @@
       formData.append('preprocess_only', document.getElementById('preprocessOnly').checked ? '1' : '0');
 
       try {
+        // Update stage 1 label to name the selected OMR engine
+        const engineLabels = { audiveris: 'Audiveris', musescore: 'MuseScore', oemer: 'Oemer' };
+        const engineName = engineLabels[document.getElementById('omrEngine').value] || 'OMR engine';
+        document.querySelector('#stage1 .stage-label').textContent = `Reading score with ${engineName}`;
         activateStage(0);
 
         const res = await fetch(`${API}/api/split`, {
@@ -1155,7 +1182,7 @@
       }
     });
 
-    // ── Auto-detect discrepancies ─────────────────────────────────────────
+    // ── Auto-correct ──────────────────────────────────────────────────────
     document.getElementById('autodetectBtn').addEventListener('click', async () => {
       if (!currentJobId) return;
       const btn = document.getElementById('autodetectBtn');
@@ -1164,7 +1191,7 @@
       btn.textContent = 'Analysing…';
       status.style.display = 'block';
       status.style.color = 'var(--teal-light)';
-      status.textContent = 'Comparing original score against MusicXML — this may take a moment…';
+      status.textContent = 'Comparing original against transcription visually — this may take a moment…';
 
       try {
         const API = 'https://choralsplit.fly.dev';
@@ -1178,25 +1205,63 @@
           throw new Error(detail);
         }
         const data = await res.json();
-        const detected = (data.corrections || '').trim();
 
-        if (!detected || detected.toLowerCase().startsWith('no corrections')) {
+        if (!data.corrections_count) {
           status.textContent = '✓ No corrections needed — score matches original.';
           return;
         }
 
-        const ta = document.getElementById('reprocessCorrections');
-        const existing = ta.value.trim();
-        ta.value = existing ? `${existing}\n${detected}` : detected;
-        status.textContent = '✓ Corrections added — review above and click Re-process.';
-        ta.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // Refresh SVG preview with corrected transcription
+        if (data.preview && data.preview.svg_pages) {
+          document.getElementById('previewSvgPages').innerHTML = '';
+          renderPreviewInline({ pdf_pages: [], svg_pages: data.preview.svg_pages }, API, []);
+        }
+
+        // Rebuild parts list with new audio links
+        partList.innerHTML = '';
+        if (data.all_mp3_url) {
+          const item = document.createElement('div');
+          item.className = 'part-item';
+          item.style.borderColor = 'rgba(212,184,74,0.25)';
+          item.innerHTML = `
+            <div>
+              <div class="part-name" style="color:var(--yellow-l)">All parts</div>
+              <div class="part-meta">Combined score</div>
+            </div>
+            <a class="btn-download" href="${API}${escHtml(data.all_mp3_url)}" download="All parts.mp3">Download</a>
+          `;
+          partList.appendChild(item);
+        }
+        (data.parts || []).forEach(part => {
+          const item = document.createElement('div');
+          item.className = 'part-item';
+          item.innerHTML = `
+            <div>
+              <div class="part-name">${escHtml(part.name)}</div>
+              <div class="part-meta">${part.note_count ?? '—'} notes</div>
+            </div>
+            <a class="btn-download" href="${API}${escHtml(part.mp3_url)}" download="${escHtml(part.name)}.mp3">Download</a>
+          `;
+          partList.appendChild(item);
+        });
+        if (data.zip_url) {
+          downloadAll.href = `${API}${data.zip_url}`;
+        }
+
+        status.textContent = `✓ ${data.corrections_count} correction(s) applied — preview and audio updated.`;
+
+        // Show what was corrected in the textarea so the user can see and optionally refine further
+        if (data.corrections_summary) {
+          const ta = document.getElementById('reprocessCorrections');
+          ta.value = `[Auto-applied]\n${data.corrections_summary}`;
+        }
 
       } catch (err) {
         status.style.color = '#ff7a7a';
         status.textContent = `Error: ${err.message}`;
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Auto-detect discrepancies';
+        btn.textContent = 'Auto-correct';
       }
     });
 

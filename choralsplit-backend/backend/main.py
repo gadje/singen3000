@@ -25,8 +25,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Where Audiveris is installed (set via env var or override here)
+# Where each OMR engine is installed (set via env vars or override here)
 AUDIVERIS_CMD = os.environ.get("AUDIVERIS_CMD", "/opt/audiveris/bin/Audiveris")
+MSCORE_CMD    = os.environ.get("MSCORE_CMD",    "mscore")
+OEMER_CMD     = os.environ.get("OEMER_CMD",     "oemer")
 
 # Temp directory for jobs (cleaned up after response)
 JOBS_DIR = Path(tempfile.gettempdir()) / "choralsplit_jobs"
@@ -131,10 +133,130 @@ def _parse_audiveris_error_bars(log_text: str) -> list[dict]:
     return sorted(issues, key=lambda x: x["bar"])
 
 
+# ── MuseScore OMR ─────────────────────────────────────────────────────────────
+
+def run_musescore(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[dict]]:
+    """Run MuseScore in headless mode to convert PDF → MusicXML.
+    Best for cleanly typeset (digitally-generated) scores.
+    Returns (xml_files, []) — MuseScore doesn't emit measure-level error logs."""
+    xml_path = output_dir / "score.xml"
+    result = subprocess.run(
+        [MSCORE_CMD, "--no-gui", "-o", str(xml_path), str(pdf_path)],
+        capture_output=True, text=True, timeout=180,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"MuseScore failed (exit {result.returncode}):\n"
+            + (result.stderr or result.stdout)[-3000:]
+        )
+    xml_files = [p for p in [xml_path] if p.exists()]
+    # MuseScore may also produce .mxl
+    xml_files += list(output_dir.glob("*.mxl"))
+    if not xml_files:
+        raise RuntimeError(
+            "MuseScore completed but produced no MusicXML output. "
+            "The PDF may not contain embedded notation data."
+        )
+    return xml_files, []
+
+
+# ── Oemer OMR ─────────────────────────────────────────────────────────────────
+
+def _pdf_to_page_pngs(pdf_path: Path, output_dir: Path, dpi: int = 300) -> list[Path]:
+    """Convert a PDF to per-page PNG images using ImageMagick."""
+    subprocess.run(
+        ["convert", "-density", str(dpi), str(pdf_path),
+         "-quality", "100", "-colorspace", "Gray",
+         str(output_dir / "page-%02d.png")],
+        check=True, capture_output=True, timeout=180,
+    )
+    pages = sorted(output_dir.glob("page-*.png"))
+    if not pages:
+        single = output_dir / "page.png"
+        if single.exists():
+            renamed = output_dir / "page-00.png"
+            single.rename(renamed)
+            pages = [renamed]
+    return pages
+
+
+def _merge_musicxml_pages(xml_files: list[Path], out_path: Path) -> Path:
+    """Merge per-page MusicXML outputs (e.g. from Oemer) into one score.
+    Appends the measures from each subsequent page onto the first page's parts."""
+    if len(xml_files) == 1:
+        return xml_files[0]
+    import music21
+    combined = music21.converter.parse(str(xml_files[0]))
+    for xml_path in xml_files[1:]:
+        try:
+            page = music21.converter.parse(str(xml_path))
+            for p_idx in range(min(len(combined.parts), len(page.parts))):
+                for measure in page.parts[p_idx].getElementsByClass("Measure"):
+                    combined.parts[p_idx].append(measure)
+        except Exception:
+            continue  # skip unreadable pages rather than fail the whole job
+    combined.write("musicxml", fp=str(out_path))
+    return out_path
+
+
+def run_oemer(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[dict]]:
+    """Run Oemer (deep-learning OMR) on each page of the PDF.
+    Best for scanned scores and SATB layouts.
+    Returns (xml_files, [])."""
+    pages_dir = output_dir / "pages"
+    pages_dir.mkdir()
+    page_imgs = _pdf_to_page_pngs(pdf_path, pages_dir)
+    if not page_imgs:
+        raise RuntimeError("Failed to convert PDF to images for Oemer.")
+
+    xml_files: list[Path] = []
+    for img_path in page_imgs:
+        page_out = output_dir / img_path.stem
+        page_out.mkdir(exist_ok=True)
+        result = subprocess.run(
+            [OEMER_CMD, str(img_path), "-o", str(page_out)],
+            capture_output=True, text=True, timeout=600,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Oemer failed on {img_path.name} (exit {result.returncode}):\n"
+                + (result.stderr or result.stdout)[-3000:]
+            )
+        found = (list(page_out.glob("*.xml"))
+                 + list(page_out.glob("*.musicxml"))
+                 + list(page_out.glob("*.mxl")))
+        xml_files.extend(sorted(found))
+
+    if not xml_files:
+        raise RuntimeError("Oemer completed but produced no MusicXML output.")
+
+    if len(xml_files) > 1:
+        merged = _merge_musicxml_pages(xml_files, output_dir / "merged.xml")
+        return [merged], []
+    return xml_files, []
+
+
+# ── OMR dispatcher ────────────────────────────────────────────────────────────
+
+def run_omr(
+    pdf_path: Path,
+    output_dir: Path,
+    engine: str = "audiveris",
+) -> tuple[list[Path], list[dict]]:
+    """Dispatch to the requested OMR engine.
+    engine: "audiveris" | "musescore" | "oemer"
+    Returns (xml_files, error_bars)."""
+    if engine == "musescore":
+        return run_musescore(pdf_path, output_dir)
+    if engine == "oemer":
+        return run_oemer(pdf_path, output_dir)
+    return run_audiveris(pdf_path, output_dir)
+
+
 def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
     """Render each PDF page to a JPEG at 150 DPI using ImageMagick."""
     subprocess.run(
-        ["convert", "-density", "150", str(pdf_path),
+        ["convert", "-density", "200", str(pdf_path),
          "-quality", "85", str(output_dir / "orig-%02d.jpg")],
         check=True, capture_output=True, timeout=120,
     )
@@ -667,6 +789,7 @@ async def split_score(
     deskew: str = Form("0"),
     bw: str = Form("0"),
     preprocess_only: str = Form("0"),
+    omr_engine: str = Form("audiveris"),
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, detail="Only PDF files are accepted.")
@@ -695,10 +818,10 @@ async def split_score(
                 "preprocess_pdf_url": f"/files/{job_id}/{pdf_path.name}"
             }
 
-        # 3. Run Audiveris
+        # 3. Run OMR engine
         audiveris_out = job_dir / "audiveris"
         audiveris_out.mkdir()
-        xml_files, error_bars = run_audiveris(pdf_path, audiveris_out)
+        xml_files, error_bars = run_omr(pdf_path, audiveris_out, omr_engine)
         # take first (multi-page scores may produce one file)
         xml_path = xml_files[0]
 
@@ -907,81 +1030,193 @@ def _apply_and_save_xml(
     score.write("musicxml", fp=str(out_path))
 
 
+def _render_svg_to_png(svg_path: Path) -> Path | None:
+    """Convert a Verovio SVG page to PNG for the vision API.
+    Tries cairosvg first; falls back to ImageMagick. Returns None on failure."""
+    png_path = svg_path.with_suffix(".png")
+    try:
+        import cairosvg
+        cairosvg.svg2png(
+            url=str(svg_path),
+            write_to=str(png_path),
+            background_color="white",
+        )
+        return png_path
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            ["convert", "-background", "white", "-flatten", str(svg_path), str(png_path)],
+            check=True, capture_output=True, timeout=60,
+        )
+        return png_path
+    except Exception:
+        return None
+
+
+def _score_to_compact_text(xml_path: Path, max_bars: int = 80) -> str:
+    """Parse MusicXML with music21 and return a compact bar-by-bar reference.
+    Example line: Bar 7 | Soprano: G5q D5q E5h | Alto: E5q C5q A4h
+    Used as a text anchor so the vision model can report accurate bar numbers."""
+    try:
+        import music21
+        score = music21.converter.parse(str(xml_path))
+        parts = list(score.parts)
+        if not parts:
+            return ""
+
+        _DUR = {4.0: "whole", 3.0: "d.half", 2.0: "half", 1.5: "d.qtr",
+                1.0: "qtr", 0.75: "d.8th", 0.5: "8th", 0.25: "16th"}
+
+        def _dur(ql):
+            return _DUR.get(float(ql), f"{ql}q")
+
+        def _measure_str(m) -> str:
+            items = []
+            for el in m.flat.notesAndRests:
+                d = _dur(el.quarterLength)
+                if el.isRest:
+                    items.append(f"r{d}")
+                elif hasattr(el, "pitches"):   # chord
+                    items.append("+".join(str(p) for p in el.pitches) + d)
+                else:
+                    items.append(f"{el.pitch}{d}")
+            return " ".join(items) if items else "rest"
+
+        part_names: list[str] = []
+        for p in parts:
+            try:
+                instr = p.getInstrument()
+                name = instr.partName if instr and instr.partName else (p.id or "Part")
+            except Exception:
+                name = p.id or "Part"
+            part_names.append(name)
+
+        measures_by_num: dict[int, list] = {}
+        for p in parts:
+            for m in p.getElementsByClass("Measure"):
+                measures_by_num.setdefault(m.number, []).append(m)
+
+        lines = []
+        for bar_num in sorted(measures_by_num)[:max_bars]:
+            ms = measures_by_num[bar_num]
+            segments = []
+            for i, m in enumerate(ms):
+                name = part_names[i] if i < len(part_names) else f"Part {i+1}"
+                segments.append(f"{name}: {_measure_str(m)}")
+            lines.append(f"Bar {bar_num} | " + " | ".join(segments))
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def autodetect_corrections(
     pdf_page_paths: list[Path],
     xml_path: Path,
-) -> str:
-    """Compare original PDF page images against the Audiveris MusicXML using
-    Claude Sonnet vision + text.  The model reads note data directly from the
-    XML rather than from a visual rendering of it, giving a single visual
-    interpretation step (the original PDF) instead of two.
-    Returns a natural-language description of every discrepancy found."""
+    vrv_page_paths: list[Path | None] | None = None,
+) -> list[dict]:
+    """Compare original PDF page images against Verovio-rendered transcription pages
+    using Claude Sonnet vision.  Sends image pairs (original + render) per page so the
+    model compares two visual representations rather than reading raw XML.
+    Returns a list of correction dicts ready for apply_corrections()."""
     if not ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY is not configured on the server.")
 
     import anthropic
-    import base64
 
     if not pdf_page_paths:
         raise RuntimeError("No original PDF pages available to compare.")
 
-    # MXL is a ZIP-compressed MusicXML — extract the inner XML before reading
-    if xml_path.suffix.lower() == ".mxl":
-        import zipfile as _zipfile
-        with _zipfile.ZipFile(str(xml_path)) as zf:
-            xml_names = [n for n in zf.namelist()
-                         if n.endswith(".xml") and not n.startswith("META-INF")]
-            root_level = [n for n in xml_names if "/" not in n]
-            xml_name = root_level[0] if root_level else xml_names[0]
-            xml_text = zf.read(xml_name).decode("utf-8", errors="replace")
-    else:
-        xml_text = xml_path.read_text(encoding="utf-8", errors="replace")
+    vrv = vrv_page_paths or []
+    page_count = min(len(pdf_page_paths), 8)  # cap to keep context manageable
 
     content: list[dict] = []
 
-    for i, p in enumerate(pdf_page_paths[:10], 1):   # cap at 10 pages
-        content.append({"type": "text", "text": f"=== ORIGINAL SCORE — page {i} ==="})
+    for i in range(page_count):
+        page_num = i + 1
+        orig_path = pdf_page_paths[i]
+        vrv_path = vrv[i] if i < len(vrv) else None
+
+        content.append({"type": "text", "text": f"=== Page {page_num} — ORIGINAL (ground truth) ==="})
         content.append({
             "type": "image",
             "source": {
                 "type": "base64",
                 "media_type": "image/jpeg",
-                "data": base64.standard_b64encode(p.read_bytes()).decode(),
+                "data": base64.standard_b64encode(orig_path.read_bytes()).decode(),
             },
         })
 
-    content.append({"type": "text", "text": (
-        "=== COMPUTER-RECOGNISED SCORE (MusicXML) ===\n" + xml_text
-    )})
+        if vrv_path and vrv_path.exists():
+            content.append({"type": "text",
+                             "text": f"=== Page {page_num} — TRANSCRIPTION (may contain errors) ==="})
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": base64.standard_b64encode(vrv_path.read_bytes()).decode(),
+                },
+            })
 
-    content.append({"type": "text", "text": (
-        "The MusicXML above was extracted from the score shown in the images by an optical "
-        "music recognition engine. The images are the ground truth.\n\n"
-        "Output ONLY the correction lines — no preamble, no analysis, no explanation. "
-        "One correction per line. Format:\n"
-        "Bar <N>, <Part>: <concise description>\n\n"
-        "Examples:\n"
-        "Modulation to C major in bar 16.\n"
-        "Bar 7, Bass: E2 minim, crotchet rest\n"
-        "Bar 12, Soprano: F#5 dotted crotchet, quaver rest\n"
-        "Bar 16, Bass: low E2 + B2 minim, crotchet rest\n"
-        "Bar 45, Alto: quaver rest, 4× F4 quavers, dotted crotchet rest\n"
-        "Bar 1, all parts: 3/4 time signature\n\n"
-        "Use bar numbers from the MusicXML (measure/@number). "
-        "Name parts as Soprano, Alto, Tenor, Bass, or top/bottom if unlabelled. "
-        "If no corrections are needed, write exactly: No corrections needed."
-    )})
+    # Compact bar-by-bar text for accurate bar-number anchoring
+    compact = _score_to_compact_text(xml_path)
+    if compact:
+        content.append({"type": "text", "text": (
+            "=== TRANSCRIPTION — bar-by-bar note reference ===\n"
+            "(Use these bar numbers when reporting corrections)\n"
+            + compact
+        )})
+
+    schema_doc = """\
+Output a JSON array of correction objects. Return ONLY the JSON — no prose, no code fences.
+If no corrections are needed output an empty array: []
+
+Each object must have these fields:
+  "bar":  integer bar/measure number (use the numbers from the bar reference above)
+  "part": "Soprano" | "Alto" | "Tenor" | "Bass" | "top" | "bottom" | "all"
+  "type": one of: "key" | "tempo" | "time_signature" | "replace_notes" | "delete_notes"
+  "value": depends on type (see below)
+
+TYPE DETAILS
+  "key":            value = music21 key string. Sharps="#", flats="-". e.g. "B- major", "f# minor"
+  "tempo":          value = integer BPM
+  "time_signature": value = string e.g. "3/4"
+  "delete_notes":   value = null  (replaces bar with a whole rest)
+  "replace_notes":  value = array of note objects:
+      single note: {"pitch": "C4",  "duration": 1.0}
+      chord:       {"pitches": ["E2","B2"], "duration": 2.0}
+      rest:        {"rest": true,   "duration": 1.0}
+      Durations in quarter-note lengths: whole=4.0, half=2.0, qtr=1.0, 8th=0.5,
+      dotted-half=3.0, dotted-qtr=1.5. Pitches: C4=middle C, use "#" for sharps, "b" for flats.
+
+EXAMPLES
+[
+  {"bar":1,"part":"all","type":"key","value":"B- major"},
+  {"bar":1,"part":"all","type":"time_signature","value":"3/4"},
+  {"bar":7,"part":"Bass","type":"replace_notes","value":[{"pitches":["E2","B2"],"duration":2.0},{"rest":true,"duration":1.0}]},
+  {"bar":12,"part":"Soprano","type":"replace_notes","value":[{"pitch":"F#5","duration":1.5},{"rest":true,"duration":0.5}]}
+]
+
+RULES
+- Only report differences in pitches, rhythms, rests, accidentals, key/time signatures.
+- Ignore layout, engraving style, dynamics, slurs, ties, articulations.
+- Use exact bar numbers from the bar reference above.
+- Use part names Soprano/Alto/Tenor/Bass if recognisable from the score, else top/bottom/all.
+"""
+
+    content.append({"type": "text", "text": schema_doc})
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2048,
+        max_tokens=4096,
         system=(
-            "You are a music score proofreader. You receive images of an original printed "
-            "score and the MusicXML a computer extracted from it. The images are ground truth. "
-            "Output only terse correction lines — no prose, no explanations, no summaries. "
-            "Focus on pitches, rhythms, rests, accidentals, key and time signatures only. "
-            "Ignore layout and engraving differences."
+            "You are a music score proofreader. "
+            "Original images are the ground truth. "
+            "Transcription images show what an OMR engine produced — they may contain errors. "
+            "Your job: find every difference between the original and the transcription, "
+            "then output a JSON correction list. No prose, no explanations — only JSON."
         ),
         messages=[{"role": "user", "content": content}],
     )
@@ -990,14 +1225,47 @@ def autodetect_corrections(
         raise RuntimeError(
             f"Vision model returned no content (stop_reason={response.stop_reason!r}).")
 
-    return response.content[0].text.strip()  # natural language; Haiku parses to JSON
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+    # Try direct JSON parse first
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            # Model may have wrapped the array
+            parsed = next((v for v in parsed.values() if isinstance(v, list)), [])
+        return parsed if isinstance(parsed, list) else []
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: if the model output natural language, pass it through Haiku to parse
+    if raw and not raw.lower().startswith("no corrections"):
+        try:
+            return parse_corrections_with_llm(raw)
+        except Exception:
+            pass
+    return []
+
+
+def _apply_corrections_list_to_xml(
+    xml_path: Path, out_path: Path, corrections: list[dict],
+) -> None:
+    """Apply a pre-parsed list of correction dicts to a MusicXML file and save.
+    Bypasses the Haiku parse step — corrections are already structured."""
+    import music21
+    score = music21.converter.parse(str(xml_path))
+    apply_corrections(score, corrections)
+    score.write("musicxml", fp=str(out_path))
 
 
 @app.post("/api/autodetect")
-async def autodetect_score_corrections(job_id: str = Form(...)):
-    """Compare the original PDF pages against the job's MusicXML using Sonnet vision.
-    Applies the corrections immediately and returns updated SVG + audio, exactly
-    like /api/reprocess but with corrections sourced from the vision model."""
+async def autodetect_score_corrections(
+    job_id: str = Form(...),
+    part_count: str = Form("auto"),
+):
+    """Vision-based auto-correction: compare original PDF pages against Verovio renders,
+    apply corrections immediately, and return a full reprocess-style result."""
     job_dir = JOBS_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(
@@ -1009,8 +1277,7 @@ async def autodetect_score_corrections(job_id: str = Form(...)):
         raise HTTPException(
             422, detail="Original PDF pages not found for this job. Re-upload to regenerate.")
 
-    # Always compare against the raw Audiveris output so every pass starts
-    # from the OMR baseline, not a previously-corrected version.
+    # Always diff against the raw Audiveris output so every pass starts from the OMR baseline
     audiveris_xmls = (
         list((job_dir / "audiveris").rglob("*.xml")) +
         list((job_dir / "audiveris").rglob("*.mxl"))
@@ -1020,14 +1287,106 @@ async def autodetect_score_corrections(job_id: str = Form(...)):
             422, detail="MusicXML not found for this job. Re-upload to regenerate.")
     base_xml = audiveris_xmls[0]
 
+    # Convert Verovio SVGs to PNGs for the vision model
+    svg_pages = sorted(preview_dir.glob("score-*.svg")) if preview_dir.exists() else []
+    vrv_pngs: list[Path | None] = [_render_svg_to_png(p) for p in svg_pages]
+
     try:
-        corrections_text = autodetect_corrections(pdf_pages, base_xml)
+        corrections = autodetect_corrections(pdf_pages, base_xml, vrv_pngs)
     except RuntimeError as exc:
         raise HTTPException(422, detail=str(exc))
     except Exception as exc:
         raise HTTPException(500, detail=f"Unexpected error during vision comparison: {exc}")
 
-    return {"corrections": corrections_text}
+    if not corrections:
+        return {"corrections_count": 0, "message": "No corrections needed — score matches original."}
+
+    try:
+        corrected_xml = job_dir / "corrected.xml"
+        _apply_corrections_list_to_xml(base_xml, corrected_xml, corrections)
+        working_xml = corrected_xml
+
+        # Regenerate SVG preview
+        preview = None
+        try:
+            for old_svg in preview_dir.glob("score-*.svg"):
+                old_svg.unlink()
+            for old_png in preview_dir.glob("score-*.png"):
+                old_png.unlink()
+            clean_xml = preview_dir / "score_clean.xml"
+            try:
+                strip_dynamics_from_xml(working_xml, clean_xml)
+                render_xml = clean_xml
+            except Exception:
+                render_xml = working_xml
+            svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+            preview = {
+                "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
+            }
+        except Exception:
+            pass
+
+        # Regenerate MIDI / MP3 / ZIP
+        midi_out = job_dir / "midi"
+        if midi_out.exists():
+            shutil.rmtree(midi_out)
+        midi_out.mkdir()
+
+        split_result = split_parts(working_xml, midi_out, part_count, bpm=None)
+        parts = split_result["parts"]
+        all_midi_path = split_result["all_midi_path"]
+
+        for p in parts:
+            p["mp3_path"] = midi_to_mp3(p["midi_path"])
+        all_mp3_path = midi_to_mp3(all_midi_path)
+
+        zip_path = job_dir / "all_parts.zip"
+        make_zip(
+            [p["midi_path"] for p in parts]
+            + [p["mp3_path"] for p in parts]
+            + [all_midi_path, all_mp3_path],
+            zip_path,
+        )
+
+        # Human-readable summary of what was corrected
+        def _correction_summary(c: dict) -> str:
+            bar = c.get("bar", "?")
+            part = c.get("part", "all")
+            ctype = c.get("type", "")
+            val = c.get("value")
+            if ctype == "key":
+                return f"Bar {bar}: key → {val}"
+            if ctype == "tempo":
+                return f"Bar {bar}: tempo → {val} BPM"
+            if ctype == "time_signature":
+                return f"Bar {bar}: time → {val}"
+            if ctype == "delete_notes":
+                return f"Bar {bar}, {part}: deleted"
+            return f"Bar {bar}, {part}: notes replaced"
+
+        corrections_summary = "\n".join(_correction_summary(c) for c in corrections)
+
+        return {
+            "job_id": job_id,
+            "corrections_count": len(corrections),
+            "corrections_summary": corrections_summary,
+            "parts": [
+                {
+                    "name": p["name"],
+                    "mp3_url": f"/files/{job_id}/midi/{p['mp3_path'].name}",
+                    "note_count": p["note_count"],
+                }
+                for p in parts
+            ],
+            "all_mp3_url": f"/files/{job_id}/midi/{all_mp3_path.name}",
+            "zip_url": f"/files/{job_id}/all_parts.zip",
+            "preview": preview,
+        }
+
+    except RuntimeError as exc:
+        raise HTTPException(422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(500, detail=f"Unexpected error applying corrections: {exc}")
 
 
 @app.get("/health")
