@@ -44,10 +44,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # MuseScore 4 — download AppImage and extract (no FUSE needed at runtime)
-ARG MSCORE4_VERSION=4.4.4
-ARG MSCORE4_BUILD=243570218
+ARG MSCORE4_VERSION=4.6.5
+ARG MSCORE4_BUILD=253511702
 RUN curl -L -o /tmp/mscore.AppImage \
-    "https://cdn.jsdelivr.net/musescore/v${MSCORE4_VERSION}/MuseScore-Studio-${MSCORE4_VERSION}.${MSCORE4_BUILD}-x86_64.AppImage" \
+    "https://github.com/musescore/MuseScore/releases/download/v${MSCORE4_VERSION}/MuseScore-Studio-${MSCORE4_VERSION}.${MSCORE4_BUILD}-x86_64.AppImage" \
     && chmod +x /tmp/mscore.AppImage \
     && cd /tmp && /tmp/mscore.AppImage --appimage-extract \
     && mv /tmp/squashfs-root /opt/musescore4 \
