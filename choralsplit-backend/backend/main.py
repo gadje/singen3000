@@ -159,7 +159,8 @@ def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
 
 def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
     """Render MusicXML to per-page SVG files using Verovio.
-    Error bar highlighting is handled client-side.
+    Uses loadData() with the raw XML string to avoid file-extension sniffing
+    issues that cause silent 0-page failures.
     Raises RuntimeError if Verovio produces 0 pages."""
     import verovio
     vrv = verovio.toolkit()
@@ -173,15 +174,26 @@ def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
         "breaks": "auto",
         "svgViewBox": True,
     }))
-    vrv.loadFile(str(xml_path))
+
+    # Read XML content and load as string data — loadFile() silently fails
+    # on music21-generated files (possibly due to extension or encoding issues),
+    # but loadData() with the raw XML string works reliably.
+    xml_content = xml_path.read_text(encoding="utf-8")
+    vrv.loadData(xml_content)
+
     page_count = vrv.getPageCount()
     if page_count == 0:
+        # Log a snippet of the XML for debugging
+        print(f"[render_musicxml_svg] Verovio 0 pages from {xml_path.name}, "
+              f"file size={xml_path.stat().st_size}, "
+              f"first 200 chars: {xml_content[:200]!r}")
         raise RuntimeError(f"Verovio rendered 0 pages from {xml_path.name}")
     pages = []
     for i in range(1, page_count + 1):
         svg_path = output_dir / f"score-{i:02d}.svg"
         svg_path.write_text(vrv.renderToSVG(i))
         pages.append(svg_path)
+    print(f"[render_musicxml_svg] Rendered {len(pages)} pages from {xml_path.name}")
     return pages
 
 
@@ -850,9 +862,6 @@ async def reprocess_score(
             working_xml = xml_path
 
         # Regenerate SVG preview from the corrected XML
-        # Dynamics were already stripped by _apply_and_save_xml via music21,
-        # so we render the corrected XML directly (no ElementTree round-trip).
-        # Falls back to original Audiveris XML if Verovio can't handle music21 output.
         preview = None
         try:
             preview_dir = job_dir / "preview"
@@ -861,10 +870,13 @@ async def reprocess_score(
                 old_svg.unlink()
             try:
                 svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
-            except Exception:
-                # music21 output may differ from what Verovio expects;
-                # fall back to original Audiveris XML for preview
-                svg_page_paths = render_musicxml_svg(xml_path, preview_dir)
+            except Exception as svg_err:
+                print(f"[reprocess] Corrected XML rendering failed: {svg_err}")
+                import traceback; traceback.print_exc()
+                # Fall back to original Audiveris XML with dynamics stripped
+                clean_xml = preview_dir / "score_clean.xml"
+                strip_dynamics_from_xml(xml_path, clean_xml)
+                svg_page_paths = render_musicxml_svg(clean_xml, preview_dir)
             preview = {
                 "svg_pages": [
                     f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths
@@ -923,9 +935,7 @@ def _apply_and_save_xml(
     corrections_text: str | None, bpm: int | None,
 ) -> Path:
     """Parse MusicXML, apply corrections + tempo, strip dynamics, write corrected XML.
-    Dynamics are stripped here (via music21) so the SVG preview is clean without
-    needing an ElementTree round-trip that can corrupt the XML for Verovio.
-    Returns the actual path written (may differ from out_path if music21 changes extension)."""
+    Returns the path to the written file."""
     import music21
 
     score = music21.converter.parse(str(xml_path))
@@ -941,17 +951,24 @@ def _apply_and_save_xml(
         for part in score.parts:
             part.insert(0, music21.tempo.MetronomeMark(number=bpm))
 
-    # Strip dynamics so SVG preview is clean — doing it here avoids the
-    # ElementTree round-trip in strip_dynamics_from_xml which can produce
-    # XML that Verovio cannot parse.
+    # Strip dynamics so SVG preview is clean
     for el in list(score.recurse()):
         if isinstance(el, (music21.dynamics.Dynamic,
                            music21.dynamics.DynamicWedge)):
             if el.activeSite is not None:
                 el.activeSite.remove(el)
 
+    # Write as MusicXML — ensure .xml extension so path is predictable
+    out_path = out_path.with_suffix(".xml")
     written = score.write("musicxml", fp=str(out_path))
-    return Path(written) if written else out_path
+    actual_path = Path(written) if written else out_path
+    # music21 may write to a different path (e.g. .musicxml extension).
+    # If so, rename to our expected path for consistency.
+    if actual_path != out_path and actual_path.exists():
+        actual_path.rename(out_path)
+    print(f"[_apply_and_save_xml] Wrote corrected XML to {out_path} "
+          f"(size={out_path.stat().st_size})")
+    return out_path
 
 
 def _render_svg_to_png(svg_path: Path) -> Path | None:
@@ -1177,18 +1194,24 @@ def _apply_corrections_list_to_xml(
 ) -> Path:
     """Apply a pre-parsed list of correction dicts to a MusicXML file and save.
     Bypasses the Haiku parse step — corrections are already structured.
-    Returns the actual path written."""
+    Returns the path to the written file."""
     import music21
     score = music21.converter.parse(str(xml_path))
     apply_corrections(score, corrections)
-    # Strip dynamics for clean SVG preview (avoids ElementTree round-trip)
+    # Strip dynamics for clean SVG preview
     for el in list(score.recurse()):
         if isinstance(el, (music21.dynamics.Dynamic,
                            music21.dynamics.DynamicWedge)):
             if el.activeSite is not None:
                 el.activeSite.remove(el)
+    out_path = out_path.with_suffix(".xml")
     written = score.write("musicxml", fp=str(out_path))
-    return Path(written) if written else out_path
+    actual_path = Path(written) if written else out_path
+    if actual_path != out_path and actual_path.exists():
+        actual_path.rename(out_path)
+    print(f"[_apply_corrections_list_to_xml] Wrote corrected XML to {out_path} "
+          f"(size={out_path.stat().st_size})")
+    return out_path
 
 
 @app.post("/api/autodetect")
@@ -1246,9 +1269,13 @@ async def autodetect_score_corrections(
                 old_png.unlink()
             try:
                 svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
-            except Exception:
-                # Fall back to original Audiveris XML for preview
-                svg_page_paths = render_musicxml_svg(base_xml, preview_dir)
+            except Exception as svg_err:
+                print(f"[autodetect] Corrected XML rendering failed: {svg_err}")
+                import traceback; traceback.print_exc()
+                # Fall back to original Audiveris XML with dynamics stripped
+                clean_xml = preview_dir / "score_clean.xml"
+                strip_dynamics_from_xml(base_xml, clean_xml)
+                svg_page_paths = render_musicxml_svg(clean_xml, preview_dir)
             preview = {
                 "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
             }
