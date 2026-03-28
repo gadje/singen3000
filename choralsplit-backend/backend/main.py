@@ -27,7 +27,6 @@ app.add_middleware(
 
 # Where each OMR engine is installed (set via env vars or override here)
 AUDIVERIS_CMD = os.environ.get("AUDIVERIS_CMD", "/opt/audiveris/bin/Audiveris")
-MSCORE_CMD    = os.environ.get("MSCORE_CMD",    "mscore")
 OEMER_CMD     = os.environ.get("OEMER_CMD",     "oemer")
 
 # Temp directory for jobs (cleaned up after response)
@@ -139,38 +138,6 @@ def _parse_audiveris_error_bars(log_text: str) -> list[dict]:
     return sorted(issues, key=lambda x: x["bar"])
 
 
-# ── MuseScore OMR ─────────────────────────────────────────────────────────────
-
-def run_musescore(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[dict]]:
-    """Run MuseScore in headless mode to convert PDF → MusicXML.
-    Best for cleanly typeset (digitally-generated) scores.
-    Returns (xml_files, []) — MuseScore doesn't emit measure-level error logs."""
-    xml_path = output_dir / "score.xml"
-    try:
-        result = subprocess.run(
-            ["xvfb-run", "-a", MSCORE_CMD, "-o", str(xml_path), str(pdf_path)],
-            capture_output=True, text=True, timeout=180,
-        )
-    except FileNotFoundError:
-        raise RuntimeError(
-            f"MuseScore not found. Install MuseScore 4 and ensure '{MSCORE_CMD}' is on PATH, "
-            "or set the MSCORE_CMD environment variable."
-        )
-    xml_files = [p for p in [xml_path] if p.exists()]
-    # MuseScore may also produce .mxl
-    xml_files += list(output_dir.glob("*.mxl"))
-    if not xml_files:
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"MuseScore failed (exit {result.returncode}):\n"
-                + (result.stderr or result.stdout)[-3000:]
-            )
-        raise RuntimeError(
-            "MuseScore completed but produced no MusicXML output. "
-            "The PDF may not contain embedded notation data."
-        )
-    return xml_files, []
-
 
 # ── Oemer OMR ─────────────────────────────────────────────────────────────────
 
@@ -261,10 +228,8 @@ def run_omr(
     engine: str = "audiveris",
 ) -> tuple[list[Path], list[dict]]:
     """Dispatch to the requested OMR engine.
-    engine: "audiveris" | "musescore" | "oemer"
+    engine: "audiveris" | "oemer"
     Returns (xml_files, error_bars)."""
-    if engine == "musescore":
-        return run_musescore(pdf_path, output_dir)
     if engine == "oemer":
         return run_oemer(pdf_path, output_dir)
     return run_audiveris(pdf_path, output_dir)

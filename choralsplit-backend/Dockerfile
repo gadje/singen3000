@@ -41,24 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libglib2.0-0 \
     libdbus-1-3 \
-    libopengl0 \
-    libegl1 \
-    libnss3 \
-    libpipewire-0.3-0 \
-    xvfb \
-    xauth \
     && rm -rf /var/lib/apt/lists/*
-
-# MuseScore 4 — download AppImage and extract (no FUSE needed at runtime)
-ARG MSCORE4_VERSION=4.6.5
-ARG MSCORE4_BUILD=253511702
-RUN curl -L -o /tmp/mscore.AppImage \
-    "https://github.com/musescore/MuseScore/releases/download/v${MSCORE4_VERSION}/MuseScore-Studio-${MSCORE4_VERSION}.${MSCORE4_BUILD}-x86_64.AppImage" \
-    && chmod +x /tmp/mscore.AppImage \
-    && cd /tmp && /tmp/mscore.AppImage --appimage-extract \
-    && mv /tmp/squashfs-root /opt/musescore4 \
-    && rm /tmp/mscore.AppImage \
-    && ln -s /opt/musescore4/AppRun /usr/local/bin/mscore
 
 # Use tessdata_best for higher accuracy OCR
 RUN mkdir -p /usr/share/tesseract-ocr/5/tessdata_best \

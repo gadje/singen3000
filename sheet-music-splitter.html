@@ -524,7 +524,6 @@
         <label>OMR engine</label>
         <select id="omrEngine">
           <option value="audiveris">Audiveris — general purpose</option>
-          <option value="musescore">MuseScore — typeset PDFs</option>
           <option value="oemer">Oemer — scanned scores</option>
         </select>
         <span id="omrHint" style="display:block; font-size:0.72rem; color:rgba(255,255,255,0.3); margin-top:0.35rem; line-height:1.4;"></span>
@@ -772,7 +771,6 @@
     // ── OMR engine hint ───────────────────────────────────────────────────
     const omrHints = {
       audiveris: 'Good all-rounder. Works on both typeset and scanned scores.',
-      musescore:  'Best accuracy for digitally typeset PDFs (exported from Sibelius, Finale, etc.).',
       oemer:      'Deep-learning engine — best for scanned or photographed printed scores.',
     };
     function updateOmrHint() {
@@ -866,7 +864,7 @@
 
       try {
         // Update stage 1 label to name the selected OMR engine
-        const engineLabels = { audiveris: 'Audiveris', musescore: 'MuseScore', oemer: 'Oemer' };
+        const engineLabels = { audiveris: 'Audiveris', oemer: 'Oemer' };
         const engineName = engineLabels[document.getElementById('omrEngine').value] || 'OMR engine';
         document.querySelector('#stage1 .stage-label').textContent = `Reading score with ${engineName}`;
         activateStage(0);
