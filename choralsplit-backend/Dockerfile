@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1 \
     libnss3 \
     libpipewire-0.3-0 \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # MuseScore 4 — download AppImage and extract (no FUSE needed at runtime)
@@ -76,7 +77,6 @@ RUN if [ -f /etc/ImageMagick-6/policy.xml ]; then \
 # Copy built Audiveris
 COPY --from=audiveris-build /opt/audiveris /opt/audiveris
 ENV AUDIVERIS_CMD=/opt/audiveris/bin/Audiveris
-ENV QT_QPA_PLATFORM=offscreen
 
 # Python deps
 WORKDIR /app

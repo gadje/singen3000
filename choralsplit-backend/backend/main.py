@@ -148,7 +148,7 @@ def run_musescore(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[di
     xml_path = output_dir / "score.xml"
     try:
         result = subprocess.run(
-            [MSCORE_CMD, "--no-gui", "-o", str(xml_path), str(pdf_path)],
+            ["xvfb-run", "-a", MSCORE_CMD, "--no-gui", "-o", str(xml_path), str(pdf_path)],
             capture_output=True, text=True, timeout=180,
         )
     except FileNotFoundError:
