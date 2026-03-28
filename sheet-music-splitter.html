@@ -223,17 +223,37 @@
       background:rgba(255,255,255,0.15);
       transition:background 0.4s;
     }
-    .progress-stage.active .stage-dot { background:var(--teal-light); box-shadow:0 0 8px rgba(123,188,190,0.5); }
+    .progress-stage.active .stage-dot {
+      background:var(--teal-light); box-shadow:0 0 8px rgba(123,188,190,0.5);
+      animation:dotPulse 1.4s ease-in-out infinite;
+    }
     .progress-stage.done .stage-dot { background:var(--yellow); }
+    @keyframes dotPulse {
+      0%,100% { box-shadow:0 0 4px rgba(123,188,190,0.4); transform:scale(1); }
+      50%      { box-shadow:0 0 14px rgba(123,188,190,0.9); transform:scale(1.35); }
+    }
 
     .stage-label {
       font-size:0.82rem; color:rgba(255,255,255,0.55); letter-spacing:0.05em;
     }
     .progress-stage.active .stage-label { color:#fff; }
 
+    .elapsed-timer {
+      margin-top:1.25rem;
+      display:flex; align-items:center; gap:0.6rem;
+    }
+    .elapsed-clock {
+      font-family:'Lexend Deca',sans-serif; font-size:1.6rem; font-weight:700;
+      color:var(--teal-light); letter-spacing:0.04em; line-height:1;
+      min-width:5.5ch;
+    }
+    .elapsed-note {
+      font-size:0.72rem; color:rgba(255,255,255,0.3); line-height:1.4;
+    }
+
     .progress-bar-wrap {
       height:2px; background:rgba(255,255,255,0.07);
-      border-radius:2px; margin-top:1.5rem; overflow:hidden;
+      border-radius:2px; margin-top:1.25rem; overflow:hidden;
     }
     .progress-bar {
       height:100%; width:0%; border-radius:2px;
@@ -592,6 +612,10 @@
         <div class="stage-dot"></div>
         <span class="stage-label">Generating MP3 files</span>
       </div>
+      <div class="elapsed-timer" id="elapsedTimer" style="display:none">
+        <span class="elapsed-clock" id="elapsedClock">0:00</span>
+        <span class="elapsed-note" id="elapsedNote"></span>
+      </div>
       <div class="progress-bar-wrap">
         <div class="progress-bar" id="progressBar"></div>
       </div>
@@ -805,6 +829,7 @@
     ];
 
     function resetUI() {
+      stopTimer();
       progressArea.classList.remove('visible');
       errorArea.classList.remove('visible');
       resultsArea.classList.remove('visible');
@@ -865,9 +890,11 @@
       try {
         // Update stage 1 label to name the selected OMR engine
         const engineLabels = { audiveris: 'Audiveris', oemer: 'Oemer' };
-        const engineName = engineLabels[document.getElementById('omrEngine').value] || 'OMR engine';
+        const selectedEngine = document.getElementById('omrEngine').value;
+        const engineName = engineLabels[selectedEngine] || 'OMR engine';
         document.querySelector('#stage1 .stage-label').textContent = `Reading score with ${engineName}`;
         activateStage(0);
+        startTimer(selectedEngine === 'oemer');
 
         const res = await fetch(`${API}/api/split`, {
           method: 'POST',
@@ -900,6 +927,7 @@
 
         stages.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
         progressBar.style.width = '100%';
+        stopTimer();
 
         if (data.preprocess_pdf_url) {
           renderPreprocessResult(data, API);
@@ -908,11 +936,35 @@
         }
 
       } catch(err) {
+        stopTimer();
         showError(err.message || 'Something went wrong. Check the score is a clean typeset PDF and try again.');
       }
     });
 
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // ── Elapsed timer ──────────────────────────────────────────────────────
+    let _timerInterval = null;
+    function startTimer(isOemer) {
+      const el = document.getElementById('elapsedTimer');
+      const clock = document.getElementById('elapsedClock');
+      const note  = document.getElementById('elapsedNote');
+      el.style.display = 'flex';
+      note.textContent = isOemer ? 'Oemer can take 5–15 min on a full score' : '';
+      let secs = 0;
+      clock.textContent = '0:00';
+      _timerInterval = setInterval(() => {
+        secs++;
+        const m = Math.floor(secs / 60);
+        const s = String(secs % 60).padStart(2, '0');
+        clock.textContent = `${m}:${s}`;
+      }, 1000);
+    }
+    function stopTimer() {
+      clearInterval(_timerInterval);
+      _timerInterval = null;
+      document.getElementById('elapsedTimer').style.display = 'none';
+    }
 
     function renderPreprocessResult(data, base) {
       document.getElementById('resultsHeader').textContent = 'Preprocessed PDF ready';

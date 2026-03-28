@@ -22,8 +22,8 @@ primary_region = 'ams'
   [http_service.tls_options]
     alpn = ['h2', 'http/1.1']
   [http_service.http_options]
-    idle_timeout = 600
-    response_header_timeout = 600
+    idle_timeout = 1800
+    response_header_timeout = 1800
 
   [http_service.concurrency]
     type = 'requests'

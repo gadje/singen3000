@@ -1,6 +1,7 @@
 """
 ChoralSplit backend — FastAPI + Audiveris + music21
 """
+import asyncio
 import base64
 import json
 import os
@@ -800,68 +801,75 @@ async def split_score(
                 "preprocess_pdf_url": f"/files/{job_id}/{pdf_path.name}"
             }
 
-        # 3. Run OMR engine
-        audiveris_out = job_dir / "audiveris"
-        audiveris_out.mkdir()
-        xml_files, error_bars = run_omr(pdf_path, audiveris_out, omr_engine)
-        # take first (multi-page scores may produce one file)
-        xml_path = xml_files[0]
+        # Run all blocking CPU/subprocess work in a thread so the event loop
+        # stays responsive (health checks, keep-alive, etc.)
+        def _do_processing():
+            # 3. Run OMR engine
+            audiveris_out = job_dir / "audiveris"
+            audiveris_out.mkdir()
+            xml_files, error_bars = run_omr(pdf_path, audiveris_out, omr_engine)
+            # take first (multi-page scores may produce one file)
+            xml_path = xml_files[0]
 
-        # If corrections were provided, bake them into a corrected XML now so
-        # both the SVG preview and the audio use the same corrected score.
-        bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
-        corrections_text = corrections.strip() if corrections else None
-        if corrections_text or bpm:
-            corrected_xml = job_dir / "corrected.xml"
-            _apply_and_save_xml(xml_path, corrected_xml, corrections_text, bpm)
-            working_xml = corrected_xml
-        else:
-            working_xml = xml_path
+            # If corrections were provided, bake them into a corrected XML now so
+            # both the SVG preview and the audio use the same corrected score.
+            bpm = int(tempo_bpm) if tempo_bpm.strip().isdigit() else None
+            corrections_text = corrections.strip() if corrections else None
+            if corrections_text or bpm:
+                corrected_xml = job_dir / "corrected.xml"
+                _apply_and_save_xml(xml_path, corrected_xml, corrections_text, bpm)
+                working_xml = corrected_xml
+            else:
+                working_xml = xml_path
 
-        # Render score preview: original PDF pages as JPEGs + Verovio SVGs
-        preview = None
-        try:
-            preview_dir = job_dir / "preview"
-            preview_dir.mkdir()
-            pdf_page_paths = render_pdf_pages(pdf_path, preview_dir)
-            # Strip dynamics before rendering so the SVG shows clean notation
-            clean_xml = preview_dir / "score_clean.xml"
+            # Render score preview: original PDF pages as JPEGs + Verovio SVGs
+            preview = None
             try:
-                strip_dynamics_from_xml(working_xml, clean_xml)
-                render_xml = clean_xml
+                preview_dir = job_dir / "preview"
+                preview_dir.mkdir()
+                pdf_page_paths = render_pdf_pages(pdf_path, preview_dir)
+                # Strip dynamics before rendering so the SVG shows clean notation
+                clean_xml = preview_dir / "score_clean.xml"
+                try:
+                    strip_dynamics_from_xml(working_xml, clean_xml)
+                    render_xml = clean_xml
+                except Exception:
+                    render_xml = working_xml  # fall back to original if stripping fails
+                svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+                preview = {
+                    "pdf_pages": [f"/files/{job_id}/preview/{p.name}" for p in pdf_page_paths],
+                    "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
+                }
             except Exception:
-                render_xml = working_xml  # fall back to original if stripping fails
-            svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
-            preview = {
-                "pdf_pages": [f"/files/{job_id}/preview/{p.name}" for p in pdf_page_paths],
-                "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
-            }
-        except Exception:
-            import traceback
-            traceback.print_exc()  # visible in server logs; preview is optional
+                import traceback
+                traceback.print_exc()  # visible in server logs; preview is optional
 
-        # 4. Split parts with music21
-        midi_out = job_dir / "midi"
-        midi_out.mkdir()
-        # Corrections are already baked into working_xml; pass bpm=None too
-        # since _apply_and_save_xml already inserted the tempo mark.
-        split_result = split_parts(working_xml, midi_out, part_count, bpm=None)
-        parts = split_result["parts"]
-        all_midi_path = split_result["all_midi_path"]
+            # 4. Split parts with music21
+            midi_out = job_dir / "midi"
+            midi_out.mkdir()
+            # Corrections are already baked into working_xml; pass bpm=None too
+            # since _apply_and_save_xml already inserted the tempo mark.
+            split_result = split_parts(working_xml, midi_out, part_count, bpm=None)
+            parts = split_result["parts"]
+            all_midi_path = split_result["all_midi_path"]
 
-        # 4. Convert MIDI to MP3
-        for p in parts:
-            p["mp3_path"] = midi_to_mp3(p["midi_path"])
-        all_mp3_path = midi_to_mp3(all_midi_path)
+            # 4. Convert MIDI to MP3
+            for p in parts:
+                p["mp3_path"] = midi_to_mp3(p["midi_path"])
+            all_mp3_path = midi_to_mp3(all_midi_path)
 
-        # 5. Build ZIP containing both MIDI and MP3 files
-        zip_path = job_dir / "all_parts.zip"
-        all_files = (
-            [p["midi_path"] for p in parts]
-            + [p["mp3_path"] for p in parts]
-            + [all_midi_path, all_mp3_path]
-        )
-        make_zip(all_files, zip_path)
+            # 5. Build ZIP containing both MIDI and MP3 files
+            zip_path = job_dir / "all_parts.zip"
+            all_files = (
+                [p["midi_path"] for p in parts]
+                + [p["mp3_path"] for p in parts]
+                + [all_midi_path, all_mp3_path]
+            )
+            make_zip(all_files, zip_path)
+
+            return parts, all_mp3_path, preview, error_bars
+
+        parts, all_mp3_path, preview, error_bars = await asyncio.to_thread(_do_processing)
 
         # 6. Return JSON with download URLs
         return {
