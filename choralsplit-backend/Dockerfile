@@ -46,6 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 \
     libpipewire-0.3-0 \
     xvfb \
+    xauth \
     && rm -rf /var/lib/apt/lists/*
 
 # MuseScore 4 — download AppImage and extract (no FUSE needed at runtime)
