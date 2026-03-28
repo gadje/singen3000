@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     musescore3 \
     xvfb \
+    xauth \
     libcairo2 \
     && rm -rf /var/lib/apt/lists/*
 
