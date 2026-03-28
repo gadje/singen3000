@@ -157,13 +157,38 @@ def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
     return pages
 
 
+def _get_verovio_toolkit():
+    """Return a lazily-initialised, reusable Verovio toolkit.
+    Creating multiple verovio.toolkit() instances in the same process causes
+    font-loading failures (Bravura/Leipzig not found on 2nd+ init).
+    Reusing a single instance avoids this."""
+    import verovio
+    global _vrv_toolkit
+    if "_vrv_toolkit" not in globals() or _vrv_toolkit is None:
+        # Find resource path before creating toolkit
+        res_path = None
+        if hasattr(verovio, "get_resource_path"):
+            res_path = verovio.get_resource_path()
+        if not res_path:
+            # Fallback: resource files live inside the verovio package dir
+            pkg_dir = Path(verovio.__file__).parent
+            for candidate in [pkg_dir / "data", pkg_dir]:
+                if (candidate / "Bravura.xml").exists() or (candidate / "fonts").exists():
+                    res_path = str(candidate)
+                    break
+        if res_path:
+            _vrv_toolkit = verovio.toolkit(res_path)
+        else:
+            _vrv_toolkit = verovio.toolkit()
+        print(f"[verovio] Toolkit initialised, resource_path={res_path}")
+    return _vrv_toolkit
+
+
 def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
     """Render MusicXML to per-page SVG files using Verovio.
-    Uses loadData() with the raw XML string to avoid file-extension sniffing
-    issues that cause silent 0-page failures.
+    Uses a shared toolkit instance to avoid font-loading failures.
     Raises RuntimeError if Verovio produces 0 pages."""
-    import verovio
-    vrv = verovio.toolkit()
+    vrv = _get_verovio_toolkit()
     vrv.setOptions(json.dumps({
         "pageWidth": 2100,
         "pageHeight": 2970,
@@ -175,15 +200,12 @@ def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
         "svgViewBox": True,
     }))
 
-    # Read XML content and load as string data — loadFile() silently fails
-    # on music21-generated files (possibly due to extension or encoding issues),
-    # but loadData() with the raw XML string works reliably.
+    # Use loadData with raw XML string — more reliable than loadFile
     xml_content = xml_path.read_text(encoding="utf-8")
     vrv.loadData(xml_content)
 
     page_count = vrv.getPageCount()
     if page_count == 0:
-        # Log a snippet of the XML for debugging
         print(f"[render_musicxml_svg] Verovio 0 pages from {xml_path.name}, "
               f"file size={xml_path.stat().st_size}, "
               f"first 200 chars: {xml_content[:200]!r}")
