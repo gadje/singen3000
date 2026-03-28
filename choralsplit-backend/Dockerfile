@@ -76,6 +76,7 @@ RUN if [ -f /etc/ImageMagick-6/policy.xml ]; then \
 # Copy built Audiveris
 COPY --from=audiveris-build /opt/audiveris /opt/audiveris
 ENV AUDIVERIS_CMD=/opt/audiveris/bin/Audiveris
+ENV QT_QPA_PLATFORM=offscreen
 
 # Python deps
 WORKDIR /app
