@@ -207,6 +207,10 @@ def strip_dynamics_from_xml(xml_path: Path, out_path: Path) -> None:
     root = tree.getroot()
     ns = root.tag.split("}")[0] + "}" if root.tag.startswith("{") else ""
 
+    # Register the default namespace so ElementTree doesn't mangle it into ns0: prefixes
+    if ns:
+        ET.register_namespace('', ns.strip('{}'))
+
     dyn_tags = {f"{ns}dynamics", f"{ns}wedge", f"{ns}dashes"}
 
     for measure in root.iter(f"{ns}measure"):
@@ -719,8 +723,7 @@ async def split_score(
             corrections_text = corrections.strip() if corrections else None
             if corrections_text or bpm:
                 corrected_xml = job_dir / "corrected.xml"
-                _apply_and_save_xml(xml_path, corrected_xml, corrections_text, bpm)
-                working_xml = corrected_xml
+                working_xml = _apply_and_save_xml(xml_path, corrected_xml, corrections_text, bpm)
             else:
                 working_xml = xml_path
 
@@ -737,7 +740,13 @@ async def split_score(
                     render_xml = clean_xml
                 except Exception:
                     render_xml = working_xml  # fall back to original if stripping fails
-                svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+                try:
+                    svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+                except Exception:
+                    if render_xml != working_xml:
+                        svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
+                    else:
+                        raise
                 preview = {
                     "pdf_pages": [f"/files/{job_id}/preview/{p.name}" for p in pdf_page_paths],
                     "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
@@ -827,8 +836,7 @@ async def reprocess_score(
         # Apply corrections to a saved copy so both SVG and MIDI use the same XML
         corrected_xml = job_dir / "corrected.xml"
         if corrections_text or bpm:
-            _apply_and_save_xml(xml_path, corrected_xml, corrections_text, bpm)
-            working_xml = corrected_xml
+            working_xml = _apply_and_save_xml(xml_path, corrected_xml, corrections_text, bpm)
         else:
             working_xml = xml_path
 
@@ -846,14 +854,22 @@ async def reprocess_score(
                 render_xml = clean_xml
             except Exception:
                 render_xml = working_xml
-            svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+            try:
+                svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+            except Exception:
+                # strip_dynamics may have corrupted the XML; retry with original
+                if render_xml != working_xml:
+                    svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
+                else:
+                    raise
             preview = {
                 "svg_pages": [
                     f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths
                 ],
             }
         except Exception:
-            pass  # preview failure never breaks audio generation
+            import traceback
+            traceback.print_exc()  # visible in server logs
 
         # Clear old MIDI/MP3 output and regenerate
         midi_out = job_dir / "midi"
@@ -902,8 +918,9 @@ async def reprocess_score(
 def _apply_and_save_xml(
     xml_path: Path, out_path: Path,
     corrections_text: str | None, bpm: int | None,
-) -> None:
-    """Parse MusicXML, apply corrections + tempo, write corrected XML to out_path."""
+) -> Path:
+    """Parse MusicXML, apply corrections + tempo, write corrected XML to out_path.
+    Returns the actual path written (may differ from out_path if music21 changes extension)."""
     import music21
 
     score = music21.converter.parse(str(xml_path))
@@ -919,7 +936,8 @@ def _apply_and_save_xml(
         for part in score.parts:
             part.insert(0, music21.tempo.MetronomeMark(number=bpm))
 
-    score.write("musicxml", fp=str(out_path))
+    written = score.write("musicxml", fp=str(out_path))
+    return Path(written) if written else out_path
 
 
 def _render_svg_to_png(svg_path: Path) -> Path | None:
@@ -1142,13 +1160,15 @@ RULES
 
 def _apply_corrections_list_to_xml(
     xml_path: Path, out_path: Path, corrections: list[dict],
-) -> None:
+) -> Path:
     """Apply a pre-parsed list of correction dicts to a MusicXML file and save.
-    Bypasses the Haiku parse step — corrections are already structured."""
+    Bypasses the Haiku parse step — corrections are already structured.
+    Returns the actual path written."""
     import music21
     score = music21.converter.parse(str(xml_path))
     apply_corrections(score, corrections)
-    score.write("musicxml", fp=str(out_path))
+    written = score.write("musicxml", fp=str(out_path))
+    return Path(written) if written else out_path
 
 
 @app.post("/api/autodetect")
@@ -1195,8 +1215,7 @@ async def autodetect_score_corrections(
 
     try:
         corrected_xml = job_dir / "corrected.xml"
-        _apply_corrections_list_to_xml(base_xml, corrected_xml, corrections)
-        working_xml = corrected_xml
+        working_xml = _apply_corrections_list_to_xml(base_xml, corrected_xml, corrections)
 
         # Regenerate SVG preview
         preview = None
@@ -1211,12 +1230,19 @@ async def autodetect_score_corrections(
                 render_xml = clean_xml
             except Exception:
                 render_xml = working_xml
-            svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+            try:
+                svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
+            except Exception:
+                if render_xml != working_xml:
+                    svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
+                else:
+                    raise
             preview = {
                 "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
             }
         except Exception:
-            pass
+            import traceback
+            traceback.print_exc()
 
         # Regenerate MIDI / MP3 / ZIP
         midi_out = job_dir / "midi"
