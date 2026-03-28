@@ -157,6 +157,8 @@ def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
     return pages
 
 
+_vrv_toolkit = None
+
 def _get_verovio_toolkit():
     """Return a lazily-initialised, reusable Verovio toolkit.
     Creating multiple verovio.toolkit() instances in the same process causes
@@ -164,23 +166,9 @@ def _get_verovio_toolkit():
     Reusing a single instance avoids this."""
     import verovio
     global _vrv_toolkit
-    if "_vrv_toolkit" not in globals() or _vrv_toolkit is None:
-        # Find resource path before creating toolkit
-        res_path = None
-        if hasattr(verovio, "get_resource_path"):
-            res_path = verovio.get_resource_path()
-        if not res_path:
-            # Fallback: resource files live inside the verovio package dir
-            pkg_dir = Path(verovio.__file__).parent
-            for candidate in [pkg_dir / "data", pkg_dir]:
-                if (candidate / "Bravura.xml").exists() or (candidate / "fonts").exists():
-                    res_path = str(candidate)
-                    break
-        if res_path:
-            _vrv_toolkit = verovio.toolkit(res_path)
-        else:
-            _vrv_toolkit = verovio.toolkit()
-        print(f"[verovio] Toolkit initialised, resource_path={res_path}")
+    if _vrv_toolkit is None:
+        _vrv_toolkit = verovio.toolkit()
+        print(f"[verovio] Toolkit initialised")
     return _vrv_toolkit
 
 
