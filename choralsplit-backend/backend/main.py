@@ -156,15 +156,15 @@ def run_musescore(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[di
             f"MuseScore not found. Install MuseScore 4 and ensure '{MSCORE_CMD}' is on PATH, "
             "or set the MSCORE_CMD environment variable."
         )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"MuseScore failed (exit {result.returncode}):\n"
-            + (result.stderr or result.stdout)[-3000:]
-        )
     xml_files = [p for p in [xml_path] if p.exists()]
     # MuseScore may also produce .mxl
     xml_files += list(output_dir.glob("*.mxl"))
     if not xml_files:
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"MuseScore failed (exit {result.returncode}):\n"
+                + (result.stderr or result.stdout)[-3000:]
+            )
         raise RuntimeError(
             "MuseScore completed but produced no MusicXML output. "
             "The PDF may not contain embedded notation data."
