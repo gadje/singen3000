@@ -159,7 +159,8 @@ def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
 
 def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
     """Render MusicXML to per-page SVG files using Verovio.
-    Error bar highlighting is handled client-side."""
+    Error bar highlighting is handled client-side.
+    Raises RuntimeError if Verovio produces 0 pages."""
     import verovio
     vrv = verovio.toolkit()
     vrv.setOptions(json.dumps({
@@ -173,8 +174,11 @@ def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
         "svgViewBox": True,
     }))
     vrv.loadFile(str(xml_path))
+    page_count = vrv.getPageCount()
+    if page_count == 0:
+        raise RuntimeError(f"Verovio rendered 0 pages from {xml_path.name}")
     pages = []
-    for i in range(1, vrv.getPageCount() + 1):
+    for i in range(1, page_count + 1):
         svg_path = output_dir / f"score-{i:02d}.svg"
         svg_path.write_text(vrv.renderToSVG(i))
         pages.append(svg_path)
@@ -733,18 +737,23 @@ async def split_score(
                 preview_dir = job_dir / "preview"
                 preview_dir.mkdir()
                 pdf_page_paths = render_pdf_pages(pdf_path, preview_dir)
-                # Strip dynamics before rendering so the SVG shows clean notation
-                clean_xml = preview_dir / "score_clean.xml"
-                try:
-                    strip_dynamics_from_xml(working_xml, clean_xml)
-                    render_xml = clean_xml
-                except Exception:
-                    render_xml = working_xml  # fall back to original if stripping fails
+                # For corrected XML, dynamics are already stripped by _apply_and_save_xml.
+                # For original Audiveris XML, strip dynamics via ElementTree.
+                if working_xml == xml_path:
+                    clean_xml = preview_dir / "score_clean.xml"
+                    try:
+                        strip_dynamics_from_xml(working_xml, clean_xml)
+                        render_xml = clean_xml
+                    except Exception:
+                        render_xml = working_xml
+                else:
+                    render_xml = working_xml
                 try:
                     svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
                 except Exception:
-                    if render_xml != working_xml:
-                        svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
+                    # If corrected XML fails, fall back to original Audiveris XML
+                    if render_xml != xml_path:
+                        svg_page_paths = render_musicxml_svg(xml_path, preview_dir)
                     else:
                         raise
                 preview = {
@@ -841,27 +850,21 @@ async def reprocess_score(
             working_xml = xml_path
 
         # Regenerate SVG preview from the corrected XML
+        # Dynamics were already stripped by _apply_and_save_xml via music21,
+        # so we render the corrected XML directly (no ElementTree round-trip).
+        # Falls back to original Audiveris XML if Verovio can't handle music21 output.
         preview = None
         try:
             preview_dir = job_dir / "preview"
             preview_dir.mkdir(exist_ok=True)
-            # Remove old SVGs so stale pages don't linger
             for old_svg in preview_dir.glob("score-*.svg"):
                 old_svg.unlink()
-            clean_xml = preview_dir / "score_clean.xml"
             try:
-                strip_dynamics_from_xml(working_xml, clean_xml)
-                render_xml = clean_xml
+                svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
             except Exception:
-                render_xml = working_xml
-            try:
-                svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
-            except Exception:
-                # strip_dynamics may have corrupted the XML; retry with original
-                if render_xml != working_xml:
-                    svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
-                else:
-                    raise
+                # music21 output may differ from what Verovio expects;
+                # fall back to original Audiveris XML for preview
+                svg_page_paths = render_musicxml_svg(xml_path, preview_dir)
             preview = {
                 "svg_pages": [
                     f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths
@@ -869,7 +872,7 @@ async def reprocess_score(
             }
         except Exception:
             import traceback
-            traceback.print_exc()  # visible in server logs
+            traceback.print_exc()
 
         # Clear old MIDI/MP3 output and regenerate
         midi_out = job_dir / "midi"
@@ -919,7 +922,9 @@ def _apply_and_save_xml(
     xml_path: Path, out_path: Path,
     corrections_text: str | None, bpm: int | None,
 ) -> Path:
-    """Parse MusicXML, apply corrections + tempo, write corrected XML to out_path.
+    """Parse MusicXML, apply corrections + tempo, strip dynamics, write corrected XML.
+    Dynamics are stripped here (via music21) so the SVG preview is clean without
+    needing an ElementTree round-trip that can corrupt the XML for Verovio.
     Returns the actual path written (may differ from out_path if music21 changes extension)."""
     import music21
 
@@ -935,6 +940,15 @@ def _apply_and_save_xml(
                 el.activeSite.remove(el)
         for part in score.parts:
             part.insert(0, music21.tempo.MetronomeMark(number=bpm))
+
+    # Strip dynamics so SVG preview is clean — doing it here avoids the
+    # ElementTree round-trip in strip_dynamics_from_xml which can produce
+    # XML that Verovio cannot parse.
+    for el in list(score.recurse()):
+        if isinstance(el, (music21.dynamics.Dynamic,
+                           music21.dynamics.DynamicWedge)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
 
     written = score.write("musicxml", fp=str(out_path))
     return Path(written) if written else out_path
@@ -1167,6 +1181,12 @@ def _apply_corrections_list_to_xml(
     import music21
     score = music21.converter.parse(str(xml_path))
     apply_corrections(score, corrections)
+    # Strip dynamics for clean SVG preview (avoids ElementTree round-trip)
+    for el in list(score.recurse()):
+        if isinstance(el, (music21.dynamics.Dynamic,
+                           music21.dynamics.DynamicWedge)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
     written = score.write("musicxml", fp=str(out_path))
     return Path(written) if written else out_path
 
@@ -1217,26 +1237,18 @@ async def autodetect_score_corrections(
         corrected_xml = job_dir / "corrected.xml"
         working_xml = _apply_corrections_list_to_xml(base_xml, corrected_xml, corrections)
 
-        # Regenerate SVG preview
+        # Regenerate SVG preview — dynamics already stripped by _apply_corrections_list_to_xml
         preview = None
         try:
             for old_svg in preview_dir.glob("score-*.svg"):
                 old_svg.unlink()
             for old_png in preview_dir.glob("score-*.png"):
                 old_png.unlink()
-            clean_xml = preview_dir / "score_clean.xml"
             try:
-                strip_dynamics_from_xml(working_xml, clean_xml)
-                render_xml = clean_xml
+                svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
             except Exception:
-                render_xml = working_xml
-            try:
-                svg_page_paths = render_musicxml_svg(render_xml, preview_dir)
-            except Exception:
-                if render_xml != working_xml:
-                    svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
-                else:
-                    raise
+                # Fall back to original Audiveris XML for preview
+                svg_page_paths = render_musicxml_svg(base_xml, preview_dir)
             preview = {
                 "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
             }
