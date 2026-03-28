@@ -79,8 +79,14 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[di
     ]
     env = os.environ.copy()
     env["JAVA_TOOL_OPTIONS"] = "-Djava.awt.headless=true"
-    result = subprocess.run(cmd, capture_output=True,
-                            text=True, timeout=480, env=env)
+    try:
+        result = subprocess.run(cmd, capture_output=True,
+                                text=True, timeout=480, env=env)
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"Audiveris not found at '{AUDIVERIS_CMD}'. "
+            "Install Audiveris or set the AUDIVERIS_CMD environment variable."
+        )
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -140,10 +146,16 @@ def run_musescore(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[di
     Best for cleanly typeset (digitally-generated) scores.
     Returns (xml_files, []) — MuseScore doesn't emit measure-level error logs."""
     xml_path = output_dir / "score.xml"
-    result = subprocess.run(
-        [MSCORE_CMD, "--no-gui", "-o", str(xml_path), str(pdf_path)],
-        capture_output=True, text=True, timeout=180,
-    )
+    try:
+        result = subprocess.run(
+            [MSCORE_CMD, "--no-gui", "-o", str(xml_path), str(pdf_path)],
+            capture_output=True, text=True, timeout=180,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"MuseScore not found. Install MuseScore 4 and ensure '{MSCORE_CMD}' is on PATH, "
+            "or set the MSCORE_CMD environment variable."
+        )
     if result.returncode != 0:
         raise RuntimeError(
             f"MuseScore failed (exit {result.returncode}):\n"
@@ -213,10 +225,15 @@ def run_oemer(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[dict]]
     for img_path in page_imgs:
         page_out = output_dir / img_path.stem
         page_out.mkdir(exist_ok=True)
-        result = subprocess.run(
-            [OEMER_CMD, str(img_path), "-o", str(page_out)],
-            capture_output=True, text=True, timeout=600,
-        )
+        try:
+            result = subprocess.run(
+                [OEMER_CMD, str(img_path), "-o", str(page_out)],
+                capture_output=True, text=True, timeout=600,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"Oemer not found. Install Oemer or set the OEMER_CMD environment variable."
+            )
         if result.returncode != 0:
             raise RuntimeError(
                 f"Oemer failed on {img_path.name} (exit {result.returncode}):\n"

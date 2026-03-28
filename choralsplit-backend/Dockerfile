@@ -28,7 +28,7 @@ COPY --from=audiveris-build /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-# Tesseract OCR + MIDI→MP3 tools + ImageMagick for PDF preprocessing
+# Tesseract OCR + MIDI→MP3 tools + ImageMagick + MuseScore + Cairo (for cairosvg)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-deu \
@@ -38,7 +38,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     imagemagick \
     ghostscript \
     curl \
+    musescore3 \
+    xvfb \
+    libcairo2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Wrap mscore3 in xvfb-run so it can render headlessly (MuseScore 3 requires a display)
+RUN printf '#!/bin/sh\nexec xvfb-run -a mscore3 "$@"\n' > /usr/local/bin/mscore \
+    && chmod +x /usr/local/bin/mscore
 
 # Use tessdata_best for higher accuracy OCR
 RUN mkdir -p /usr/share/tesseract-ocr/5/tessdata_best \
