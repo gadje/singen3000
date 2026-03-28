@@ -70,7 +70,16 @@ ENV AUDIVERIS_CMD=/opt/audiveris/bin/Audiveris
 # Python deps
 WORKDIR /app
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    # oemer depends on onnxruntime-gpu which crashes without CUDA — force CPU-only build
+    && pip install --no-cache-dir --force-reinstall onnxruntime
+
+# Pre-download oemer model checkpoints so they're baked into the image
+# (avoids runtime download and internet-access requirements)
+# Oemer downloads on first inference — trigger that now with a blank image
+RUN python3 -c "from PIL import Image; Image.new('RGB', (400, 200), 'white').save('/tmp/warmup.png')" \
+    && oemer /tmp/warmup.png -o /tmp/warmup_out 2>&1 || true \
+    && rm -rf /tmp/warmup.png /tmp/warmup_out
 
 # App code
 COPY backend/ .
