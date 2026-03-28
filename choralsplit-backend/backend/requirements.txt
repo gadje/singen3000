@@ -5,5 +5,3 @@ music21==9.1.0
 anthropic==0.49.0
 verovio
 cairosvg
---extra-index-url https://download.pytorch.org/whl/cpu
-oemer

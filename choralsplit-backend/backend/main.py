@@ -26,9 +26,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Where each OMR engine is installed (set via env vars or override here)
+# Where Audiveris is installed (set via env var or override here)
 AUDIVERIS_CMD = os.environ.get("AUDIVERIS_CMD", "/opt/audiveris/bin/Audiveris")
-OEMER_CMD     = os.environ.get("OEMER_CMD",     "oemer")
 
 # Temp directory for jobs (cleaned up after response)
 JOBS_DIR = Path(tempfile.gettempdir()) / "choralsplit_jobs"
@@ -138,102 +137,6 @@ def _parse_audiveris_error_bars(log_text: str) -> list[dict]:
             issues.append({"bar": bar_num, "message": msg})
     return sorted(issues, key=lambda x: x["bar"])
 
-
-
-# ── Oemer OMR ─────────────────────────────────────────────────────────────────
-
-def _pdf_to_page_pngs(pdf_path: Path, output_dir: Path, dpi: int = 300) -> list[Path]:
-    """Convert a PDF to per-page PNG images using ImageMagick."""
-    subprocess.run(
-        ["convert", "-density", str(dpi), str(pdf_path),
-         "-quality", "100", "-colorspace", "Gray",
-         str(output_dir / "page-%02d.png")],
-        check=True, capture_output=True, timeout=180,
-    )
-    pages = sorted(output_dir.glob("page-*.png"))
-    if not pages:
-        single = output_dir / "page.png"
-        if single.exists():
-            renamed = output_dir / "page-00.png"
-            single.rename(renamed)
-            pages = [renamed]
-    return pages
-
-
-def _merge_musicxml_pages(xml_files: list[Path], out_path: Path) -> Path:
-    """Merge per-page MusicXML outputs (e.g. from Oemer) into one score.
-    Appends the measures from each subsequent page onto the first page's parts."""
-    if len(xml_files) == 1:
-        return xml_files[0]
-    import music21
-    combined = music21.converter.parse(str(xml_files[0]))
-    for xml_path in xml_files[1:]:
-        try:
-            page = music21.converter.parse(str(xml_path))
-            for p_idx in range(min(len(combined.parts), len(page.parts))):
-                for measure in page.parts[p_idx].getElementsByClass("Measure"):
-                    combined.parts[p_idx].append(measure)
-        except Exception:
-            continue  # skip unreadable pages rather than fail the whole job
-    combined.write("musicxml", fp=str(out_path))
-    return out_path
-
-
-def run_oemer(pdf_path: Path, output_dir: Path) -> tuple[list[Path], list[dict]]:
-    """Run Oemer (deep-learning OMR) on each page of the PDF.
-    Best for scanned scores and SATB layouts.
-    Returns (xml_files, [])."""
-    pages_dir = output_dir / "pages"
-    pages_dir.mkdir()
-    page_imgs = _pdf_to_page_pngs(pdf_path, pages_dir)
-    if not page_imgs:
-        raise RuntimeError("Failed to convert PDF to images for Oemer.")
-
-    xml_files: list[Path] = []
-    for img_path in page_imgs:
-        page_out = output_dir / img_path.stem
-        page_out.mkdir(exist_ok=True)
-        try:
-            result = subprocess.run(
-                [OEMER_CMD, str(img_path), "-o", str(page_out)],
-                capture_output=True, text=True, timeout=600,
-            )
-        except FileNotFoundError:
-            raise RuntimeError(
-                f"Oemer not found. Install Oemer or set the OEMER_CMD environment variable."
-            )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Oemer failed on {img_path.name} (exit {result.returncode}):\n"
-                + (result.stderr or result.stdout)[-3000:]
-            )
-        found = (list(page_out.glob("*.xml"))
-                 + list(page_out.glob("*.musicxml"))
-                 + list(page_out.glob("*.mxl")))
-        xml_files.extend(sorted(found))
-
-    if not xml_files:
-        raise RuntimeError("Oemer completed but produced no MusicXML output.")
-
-    if len(xml_files) > 1:
-        merged = _merge_musicxml_pages(xml_files, output_dir / "merged.xml")
-        return [merged], []
-    return xml_files, []
-
-
-# ── OMR dispatcher ────────────────────────────────────────────────────────────
-
-def run_omr(
-    pdf_path: Path,
-    output_dir: Path,
-    engine: str = "audiveris",
-) -> tuple[list[Path], list[dict]]:
-    """Dispatch to the requested OMR engine.
-    engine: "audiveris" | "oemer"
-    Returns (xml_files, error_bars)."""
-    if engine == "oemer":
-        return run_oemer(pdf_path, output_dir)
-    return run_audiveris(pdf_path, output_dir)
 
 
 def render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
@@ -772,7 +675,6 @@ async def split_score(
     deskew: str = Form("0"),
     bw: str = Form("0"),
     preprocess_only: str = Form("0"),
-    omr_engine: str = Form("audiveris"),
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, detail="Only PDF files are accepted.")
@@ -804,10 +706,10 @@ async def split_score(
         # Run all blocking CPU/subprocess work in a thread so the event loop
         # stays responsive (health checks, keep-alive, etc.)
         def _do_processing():
-            # 3. Run OMR engine
+            # 3. Run OMR (Audiveris)
             audiveris_out = job_dir / "audiveris"
             audiveris_out.mkdir()
-            xml_files, error_bars = run_omr(pdf_path, audiveris_out, omr_engine)
+            xml_files, error_bars = run_audiveris(pdf_path, audiveris_out)
             # take first (multi-page scores may produce one file)
             xml_path = xml_files[0]
 

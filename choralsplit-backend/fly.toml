@@ -32,4 +32,4 @@ primary_region = 'ams'
 
 [[vm]]
   size = 'performance-2x'
-  memory = '8gb'
+  memory = '4gb'

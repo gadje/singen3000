@@ -541,14 +541,6 @@
 
     <div class="options-row reveal">
       <div class="option-group">
-        <label>OMR engine</label>
-        <select id="omrEngine">
-          <option value="oemer">Oemer — scanned scores</option>
-          <option value="audiveris">Audiveris — general purpose</option>
-        </select>
-        <span id="omrHint" style="display:block; font-size:0.72rem; color:rgba(255,255,255,0.3); margin-top:0.35rem; line-height:1.4;"></span>
-      </div>
-      <div class="option-group">
         <label>Score format</label>
         <select id="scoreFormat">
           <option value="auto">Auto-detect</option>
@@ -792,18 +784,6 @@
 
     fileInput.addEventListener('change', () => { if(fileInput.files[0]) setFile(fileInput.files[0]); });
 
-    // ── OMR engine hint ───────────────────────────────────────────────────
-    const omrHints = {
-      audiveris: 'Good all-rounder. Works on both typeset and scanned scores.',
-      oemer:      'Deep-learning engine — best for scanned or photographed printed scores.',
-    };
-    function updateOmrHint() {
-      const val = document.getElementById('omrEngine').value;
-      document.getElementById('omrHint').textContent = omrHints[val] || '';
-    }
-    document.getElementById('omrEngine').addEventListener('change', updateOmrHint);
-    updateOmrHint(); // set on load
-
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
     dropZone.addEventListener('drop', e => {
@@ -876,7 +856,6 @@
       const API = 'https://choralsplit.fly.dev';
       const formData = new FormData();
       formData.append('file', selectedFile);
-      formData.append('omr_engine', document.getElementById('omrEngine').value);
       formData.append('score_format', document.getElementById('scoreFormat').value);
       formData.append('part_count', document.getElementById('partCount').value);
       const tempo = document.getElementById('tempoBpm').value;
@@ -888,13 +867,9 @@
       formData.append('preprocess_only', document.getElementById('preprocessOnly').checked ? '1' : '0');
 
       try {
-        // Update stage 1 label to name the selected OMR engine
-        const engineLabels = { audiveris: 'Audiveris', oemer: 'Oemer' };
-        const selectedEngine = document.getElementById('omrEngine').value;
-        const engineName = engineLabels[selectedEngine] || 'OMR engine';
-        document.querySelector('#stage1 .stage-label').textContent = `Reading score with ${engineName}`;
+        document.querySelector('#stage1 .stage-label').textContent = 'Reading score with Audiveris';
         activateStage(0);
-        startTimer(selectedEngine === 'oemer');
+        startTimer(false);
 
         const res = await fetch(`${API}/api/split`, {
           method: 'POST',
