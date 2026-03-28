@@ -390,6 +390,11 @@
     }
     #correctionPanel.open { right:0; }
 
+    /* Clickable measures */
+    g[class~="measure"] { cursor:pointer; }
+    .measure-hover-overlay { opacity:0; transition:opacity 0.15s; pointer-events:none; }
+    g[class~="measure"]:hover .measure-hover-overlay { opacity:1; }
+
     /* Error measure highlight */
     g.has-error { cursor:pointer; }
     .error-measure-overlay { pointer-events:none; }
@@ -702,7 +707,11 @@
       <button id="corrClose" style="background:none; border:none; color:rgba(255,255,255,0.3); cursor:pointer; font-size:1.5rem; padding:0; line-height:1; margin-top:0.1rem;">×</button>
     </div>
     <p id="corrErrorMsg" style="font-size:0.78rem; color:rgba(255,140,120,0.75); line-height:1.55; margin-bottom:1.2rem; padding:0.55rem 0.75rem; background:rgba(200,55,55,0.07); border:1px solid rgba(200,55,55,0.18); border-radius:4px;"></p>
-    <p style="font-size:0.72rem; color:rgba(255,255,255,0.28); line-height:1.6; margin-bottom:0.8rem;">Describe what this bar should contain. Haiku will translate it into a MusicXML correction when you re-process.</p>
+    <button id="corrAiCorrect" style="width:100%; padding:0.7rem; margin-bottom:0.6rem; background:rgba(61,138,140,0.12); border:1px solid rgba(61,138,140,0.4); color:var(--teal-light); font-family:'Nunito',sans-serif; font-size:0.82rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; border-radius:4px; cursor:pointer; transition:opacity 0.2s;">AI correct this bar</button>
+    <p id="corrAiStatus" style="font-size:0.78rem; color:var(--teal-light); line-height:1.55; margin-bottom:0.8rem; display:none;"></p>
+    <div style="border-top:1px solid rgba(255,255,255,0.06); margin-bottom:0.8rem; padding-top:0.8rem;">
+      <p style="font-size:0.72rem; color:rgba(255,255,255,0.28); line-height:1.6; margin-bottom:0.8rem;">Or describe what this bar should contain manually:</p>
+    </div>
     <textarea id="corrInput" rows="4" placeholder="e.g. Soprano: D5 crotchet, E5 crotchet, F5 minim" style="width:100%; padding:0.6rem 0.8rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:4px; color:#fff; font-family:'Nunito',sans-serif; font-size:0.85rem; outline:none; resize:vertical; transition:border-color 0.2s; margin-bottom:0.7rem;"></textarea>
     <button id="corrApply" style="width:100%; padding:0.6rem; background:none; border:1px solid rgba(212,184,74,0.4); color:var(--yellow); font-family:'Nunito',sans-serif; font-size:0.8rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; border-radius:4px; cursor:pointer; transition:opacity 0.2s;">Add correction</button>
   </div>
@@ -1027,6 +1036,7 @@
             const measureEls = svgEl.querySelectorAll('g[class~="measure"]');
             measureEls.forEach(m => {
               globalBarIdx++;
+              addMeasureClickable(svgEl, m, globalBarIdx);
               if (errorBarMap[globalBarIdx] !== undefined) {
                 addMeasureHighlight(svgEl, m, globalBarIdx, errorBarMap[globalBarIdx]);
               }
@@ -1044,6 +1054,26 @@
           svgDiv.appendChild(wrapper);
         }
       }
+    }
+
+    function addMeasureClickable(svgEl, measureEl, barNum) {
+      try {
+        const bbox = measureEl.getBBox();
+        if (bbox.width === 0 && bbox.height === 0) return;
+
+        const ns = 'http://www.w3.org/2000/svg';
+        const rect = document.createElementNS(ns, 'rect');
+        rect.setAttribute('x', bbox.x);
+        rect.setAttribute('y', bbox.y);
+        rect.setAttribute('width', bbox.width);
+        rect.setAttribute('height', bbox.height);
+        rect.setAttribute('fill', 'rgba(61,138,140,0.10)');
+        rect.setAttribute('rx', '2');
+        rect.setAttribute('class', 'measure-hover-overlay');
+        measureEl.insertBefore(rect, measureEl.firstChild);
+
+        measureEl.addEventListener('click', () => showCorrectionPanel(barNum, null));
+      } catch (_) {}
     }
 
     function addMeasureHighlight(svgEl, measureEl, barNum, errorMsg) {
@@ -1321,8 +1351,17 @@
     function showCorrectionPanel(barNum, errorMsg) {
       corrCurrentBar = barNum;
       document.getElementById('corrBarNum').textContent = barNum;
-      document.getElementById('corrErrorMsg').textContent = errorMsg;
+      const errEl = document.getElementById('corrErrorMsg');
+      if (errorMsg) {
+        errEl.textContent = errorMsg;
+        errEl.style.display = 'block';
+      } else {
+        errEl.style.display = 'none';
+      }
       document.getElementById('corrInput').value = '';
+      document.getElementById('corrAiStatus').style.display = 'none';
+      document.getElementById('corrAiCorrect').disabled = false;
+      document.getElementById('corrAiCorrect').textContent = 'AI correct this bar';
       document.getElementById('correctionPanel').classList.add('open');
       setTimeout(() => document.getElementById('corrInput').focus(), 320);
     }
@@ -1342,6 +1381,92 @@
       document.getElementById('correctionPanel').classList.remove('open');
       document.getElementById('reprocessPanel').scrollIntoView({ behavior: 'smooth' });
     });
+    document.getElementById('corrAiCorrect').addEventListener('click', async () => {
+      if (!currentJobId || corrCurrentBar === null) return;
+      const btn = document.getElementById('corrAiCorrect');
+      const status = document.getElementById('corrAiStatus');
+      btn.disabled = true;
+      btn.textContent = 'Analysing bar…';
+      status.style.display = 'block';
+      status.style.color = 'var(--teal-light)';
+      status.textContent = 'Comparing bar against original PDF…';
+
+      try {
+        const API = 'https://choralsplit.fly.dev';
+        const fd = new FormData();
+        fd.append('job_id', currentJobId);
+        fd.append('bar_number', corrCurrentBar);
+        const res = await fetch(`${API}/api/correct-bar`, { method: 'POST', body: fd });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          let detail = `Server error ${res.status}`;
+          try { detail = JSON.parse(text).detail || detail; } catch(_) {}
+          throw new Error(detail);
+        }
+        const data = await res.json();
+
+        if (!data.corrections_count) {
+          status.textContent = 'No corrections needed for this bar.';
+          return;
+        }
+
+        // Refresh SVG preview
+        if (data.preview && data.preview.svg_pages) {
+          document.getElementById('previewSvgPages').innerHTML = '';
+          renderPreviewInline({ pdf_pages: [], svg_pages: data.preview.svg_pages }, API, []);
+        }
+
+        // Rebuild parts list
+        partList.innerHTML = '';
+        if (data.all_mp3_url) {
+          const item = document.createElement('div');
+          item.className = 'part-item';
+          item.style.borderColor = 'rgba(212,184,74,0.25)';
+          item.innerHTML = `
+            <div>
+              <div class="part-name" style="color:var(--yellow-l)">All parts</div>
+              <div class="part-meta">Combined score</div>
+            </div>
+            <a class="btn-download" href="${API}${escHtml(data.all_mp3_url)}" download="All parts.mp3">Download</a>
+          `;
+          partList.appendChild(item);
+        }
+        (data.parts || []).forEach(part => {
+          const item = document.createElement('div');
+          item.className = 'part-item';
+          item.innerHTML = `
+            <div>
+              <div class="part-name">${escHtml(part.name)}</div>
+              <div class="part-meta">${part.note_count ?? '—'} notes</div>
+            </div>
+            <a class="btn-download" href="${API}${escHtml(part.mp3_url)}" download="${escHtml(part.name)}.mp3">Download</a>
+          `;
+          partList.appendChild(item);
+        });
+        if (data.zip_url) {
+          downloadAll.href = `${API}${data.zip_url}`;
+        }
+
+        status.textContent = `Applied ${data.corrections_count} correction(s) to bar ${corrCurrentBar}.`;
+
+        // Append summary to corrections textarea
+        if (data.corrections_summary) {
+          const ta = document.getElementById('reprocessCorrections');
+          const existing = ta.value.trim();
+          const newLine = `[AI bar ${corrCurrentBar}] ${data.corrections_summary}`;
+          ta.value = existing ? `${existing}\n${newLine}` : newLine;
+        }
+
+        document.getElementById('correctionPanel').classList.remove('open');
+      } catch (err) {
+        status.style.color = '#ff7a7a';
+        status.textContent = `Error: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'AI correct this bar';
+      }
+    });
+
     // ── End Correction Panel ──────────────────────────────────────────────
 
     function escHtml(s) {

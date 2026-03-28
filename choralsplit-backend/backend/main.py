@@ -1061,6 +1061,28 @@ def _score_to_compact_text(xml_path: Path, max_bars: int = 80) -> str:
         return ""
 
 
+def _bar_to_compact_text(xml_path: Path, bar_number: int, context: int = 2) -> str:
+    """Return compact text for a specific bar and its neighbours.
+    The target bar is marked with >>> … <<< so the vision model knows which bar to focus on."""
+    full = _score_to_compact_text(xml_path, max_bars=200)
+    if not full:
+        return ""
+    lines = full.splitlines()
+    result = []
+    for line in lines:
+        # Lines look like "Bar 7 | Soprano: …"
+        try:
+            num = int(line.split("|")[0].replace("Bar", "").strip())
+        except (ValueError, IndexError):
+            continue
+        if bar_number - context <= num <= bar_number + context:
+            if num == bar_number:
+                result.append(f">>> {line} <<<  (TARGET)")
+            else:
+                result.append(line)
+    return "\n".join(result)
+
+
 def autodetect_corrections(
     pdf_page_paths: list[Path],
     xml_path: Path,
@@ -1194,6 +1216,132 @@ RULES
     if raw and not raw.lower().startswith("no corrections"):
         try:
             return parse_corrections_with_llm(raw)
+        except Exception:
+            pass
+    return []
+
+
+def correct_single_bar_vision(
+    pdf_page_paths: list[Path],
+    xml_path: Path,
+    bar_number: int,
+    vrv_page_paths: list[Path | None] | None = None,
+) -> list[dict]:
+    """Compare a single bar between the original PDF and the current transcription
+    using Claude Sonnet vision. Returns a list of correction dicts for that bar only."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not configured on the server.")
+
+    import anthropic
+
+    if not pdf_page_paths:
+        raise RuntimeError("No original PDF pages available to compare.")
+
+    vrv = vrv_page_paths or []
+    content: list[dict] = []
+
+    # Send all original PDF pages (typically 1-4 for hymns)
+    for i, orig_path in enumerate(pdf_page_paths[:8]):
+        content.append({"type": "text", "text": f"=== Page {i+1} — ORIGINAL (ground truth) ==="})
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": base64.standard_b64encode(orig_path.read_bytes()).decode(),
+            },
+        })
+
+    # Send current Verovio SVG renders
+    for i, vrv_path in enumerate(vrv[:8]):
+        if vrv_path and vrv_path.exists():
+            content.append({"type": "text",
+                             "text": f"=== Page {i+1} — TRANSCRIPTION (may contain errors) ==="})
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": base64.standard_b64encode(vrv_path.read_bytes()).decode(),
+                },
+            })
+
+    # Focused compact text for the target bar and its neighbours
+    bar_text = _bar_to_compact_text(xml_path, bar_number, context=2)
+    if bar_text:
+        content.append({"type": "text", "text": (
+            f"=== TRANSCRIPTION — bar reference (focus on bar {bar_number}) ===\n"
+            + bar_text
+        )})
+
+    schema_doc = f"""\
+Focus ONLY on bar {bar_number}. Compare that bar between the original and the transcription.
+Output a JSON array of correction objects for bar {bar_number} ONLY.
+Return ONLY the JSON — no prose, no code fences.
+If bar {bar_number} is already correct output an empty array: []
+
+Each object must have these fields:
+  "bar":  {bar_number}
+  "part": "Soprano" | "Alto" | "Tenor" | "Bass" | "top" | "bottom" | "all"
+  "type": one of: "key" | "tempo" | "time_signature" | "replace_notes" | "delete_notes"
+  "value": depends on type (see below)
+
+TYPE DETAILS
+  "key":            value = music21 key string. Sharps="#", flats="-". e.g. "B- major", "f# minor"
+  "tempo":          value = integer BPM
+  "time_signature": value = string e.g. "3/4"
+  "delete_notes":   value = null  (replaces bar with a whole rest)
+  "replace_notes":  value = array of note objects:
+      single note: {{"pitch": "C4",  "duration": 1.0}}
+      chord:       {{"pitches": ["E2","B2"], "duration": 2.0}}
+      rest:        {{"rest": true,   "duration": 1.0}}
+      Durations in quarter-note lengths: whole=4.0, half=2.0, qtr=1.0, 8th=0.5,
+      dotted-half=3.0, dotted-qtr=1.5. Pitches: C4=middle C, use "#" for sharps, "b" for flats.
+
+RULES
+- ONLY report differences for bar {bar_number}. Ignore all other bars.
+- Only report differences in pitches, rhythms, rests, accidentals, key/time signatures.
+- Ignore layout, engraving style, dynamics, slurs, ties, articulations.
+- Use part names Soprano/Alto/Tenor/Bass if recognisable from the score, else top/bottom/all.
+"""
+
+    content.append({"type": "text", "text": schema_doc})
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=(
+            f"You are a music score proofreader. Focus ONLY on bar {bar_number}. "
+            "Original images are the ground truth. "
+            "Transcription images show what an OMR engine produced — they may contain errors. "
+            f"Compare ONLY bar {bar_number} between the original and the transcription, "
+            "then output a JSON correction list. No prose, no explanations — only JSON."
+        ),
+        messages=[{"role": "user", "content": content}],
+    )
+
+    if not response.content:
+        return []
+
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            parsed = next((v for v in parsed.values() if isinstance(v, list)), [])
+        if not isinstance(parsed, list):
+            return []
+        # Filter to only the target bar
+        return [c for c in parsed if c.get("bar") == bar_number]
+    except json.JSONDecodeError:
+        pass
+
+    if raw and not raw.lower().startswith("no corrections"):
+        try:
+            return [c for c in parse_corrections_with_llm(raw) if c.get("bar") == bar_number]
         except Exception:
             pass
     return []
@@ -1354,6 +1502,137 @@ async def autodetect_score_corrections(
         raise HTTPException(422, detail=str(exc))
     except Exception as exc:
         raise HTTPException(500, detail=f"Unexpected error applying corrections: {exc}")
+
+
+@app.post("/api/correct-bar")
+async def correct_single_bar(
+    job_id: str = Form(...),
+    bar_number: int = Form(...),
+    part_count: str = Form("auto"),
+):
+    """AI-correct a single bar by comparing it against the original PDF using vision."""
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.exists():
+        raise HTTPException(
+            404, detail="Job not found — the server may have restarted. Please re-upload.")
+
+    preview_dir = job_dir / "preview"
+    pdf_pages = sorted(preview_dir.glob("orig-*.jpg")) if preview_dir.exists() else []
+    if not pdf_pages:
+        raise HTTPException(
+            422, detail="Original PDF pages not found for this job. Re-upload to regenerate.")
+
+    # Use corrected XML if it exists (incremental corrections), else Audiveris baseline
+    corrected_xml = job_dir / "corrected.xml"
+    audiveris_xmls = (
+        list((job_dir / "audiveris").rglob("*.xml")) +
+        list((job_dir / "audiveris").rglob("*.mxl"))
+    )
+    if not audiveris_xmls:
+        raise HTTPException(
+            422, detail="MusicXML not found for this job. Re-upload to regenerate.")
+    base_xml = corrected_xml if corrected_xml.exists() else audiveris_xmls[0]
+
+    # Convert current Verovio SVGs to PNGs for the vision model
+    svg_pages = sorted(preview_dir.glob("score-*.svg")) if preview_dir.exists() else []
+    vrv_pngs: list[Path | None] = [_render_svg_to_png(p) for p in svg_pages]
+
+    try:
+        corrections = correct_single_bar_vision(pdf_pages, base_xml, bar_number, vrv_pngs)
+    except RuntimeError as exc:
+        raise HTTPException(422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(500, detail=f"Unexpected error during bar correction: {exc}")
+
+    if not corrections:
+        return {"corrections_count": 0, "message": f"No corrections needed for bar {bar_number}."}
+
+    try:
+        out_xml = job_dir / "corrected.xml"
+        working_xml = _apply_corrections_list_to_xml(base_xml, out_xml, corrections)
+
+        # Regenerate SVG preview
+        preview = None
+        try:
+            for old_svg in preview_dir.glob("score-*.svg"):
+                old_svg.unlink()
+            for old_png in preview_dir.glob("score-*.png"):
+                old_png.unlink()
+            try:
+                svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
+            except Exception as svg_err:
+                print(f"[correct-bar] Corrected XML rendering failed: {svg_err}")
+                import traceback; traceback.print_exc()
+                clean_xml = preview_dir / "score_clean.xml"
+                strip_dynamics_from_xml(audiveris_xmls[0], clean_xml)
+                svg_page_paths = render_musicxml_svg(clean_xml, preview_dir)
+            preview = {
+                "svg_pages": [f"/files/{job_id}/preview/{p.name}" for p in svg_page_paths],
+            }
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+        # Regenerate MIDI / MP3 / ZIP
+        midi_out = job_dir / "midi"
+        if midi_out.exists():
+            shutil.rmtree(midi_out)
+        midi_out.mkdir()
+
+        split_result = split_parts(working_xml, midi_out, part_count, bpm=None)
+        parts = split_result["parts"]
+        all_midi_path = split_result["all_midi_path"]
+
+        for p in parts:
+            p["mp3_path"] = midi_to_mp3(p["midi_path"])
+        all_mp3_path = midi_to_mp3(all_midi_path)
+
+        zip_path = job_dir / "all_parts.zip"
+        make_zip(
+            [p["midi_path"] for p in parts]
+            + [p["mp3_path"] for p in parts]
+            + [all_midi_path, all_mp3_path],
+            zip_path,
+        )
+
+        def _correction_summary(c: dict) -> str:
+            bar = c.get("bar", "?")
+            part = c.get("part", "all")
+            ctype = c.get("type", "")
+            val = c.get("value")
+            if ctype == "key":
+                return f"Bar {bar}: key → {val}"
+            if ctype == "tempo":
+                return f"Bar {bar}: tempo → {val} BPM"
+            if ctype == "time_signature":
+                return f"Bar {bar}: time → {val}"
+            if ctype == "delete_notes":
+                return f"Bar {bar}, {part}: deleted"
+            return f"Bar {bar}, {part}: notes replaced"
+
+        corrections_summary = "\n".join(_correction_summary(c) for c in corrections)
+
+        return {
+            "job_id": job_id,
+            "corrections_count": len(corrections),
+            "corrections_summary": corrections_summary,
+            "parts": [
+                {
+                    "name": p["name"],
+                    "mp3_url": f"/files/{job_id}/midi/{p['mp3_path'].name}",
+                    "note_count": p["note_count"],
+                }
+                for p in parts
+            ],
+            "all_mp3_url": f"/files/{job_id}/midi/{all_mp3_path.name}",
+            "zip_url": f"/files/{job_id}/all_parts.zip",
+            "preview": preview,
+        }
+
+    except RuntimeError as exc:
+        raise HTTPException(422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(500, detail=f"Unexpected error applying bar correction: {exc}")
 
 
 @app.get("/health")
