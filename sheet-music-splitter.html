@@ -391,9 +391,8 @@
     #correctionPanel.open { right:0; }
 
     /* Clickable measures */
-    g[class~="measure"] { cursor:pointer; }
-    .measure-hover-overlay { opacity:0; transition:opacity 0.15s; pointer-events:none; }
-    g[class~="measure"]:hover .measure-hover-overlay { opacity:1; }
+    .measure-click-overlay { fill:rgba(61,138,140,0); transition:fill 0.15s; cursor:pointer; }
+    .measure-click-overlay:hover { fill:rgba(61,138,140,0.12); }
 
     /* Error measure highlight */
     g.has-error { cursor:pointer; }
@@ -1028,6 +1027,15 @@
           wrapper.innerHTML = svgText.replace(/^<\?xml[^>]*\?>\s*/i, '');
           const svgEl = wrapper.querySelector('svg');
           if (svgEl) {
+            // Remove broken <image> elements (Verovio refs to missing resources)
+            svgEl.querySelectorAll('image').forEach(el => el.remove());
+            // Remove "MEI engraved with Verovio" footer and "score.mxl" title text
+            svgEl.querySelectorAll('text').forEach(el => {
+              const t = el.textContent.trim().toLowerCase();
+              if (t.includes('engraved with') || t.includes('verovio') ||
+                  t.endsWith('.mxl') || t.endsWith('.xml') || t.endsWith('.musicxml'))
+                el.remove();
+            });
             svgEl.style.cssText = 'width:100%; height:auto; display:block; border-radius:2px;';
             svgDiv.appendChild(wrapper);
             // Let the browser lay out the SVG before calling getBBox()
@@ -1062,17 +1070,21 @@
         if (bbox.width === 0 && bbox.height === 0) return;
 
         const ns = 'http://www.w3.org/2000/svg';
+        // Transparent rect ON TOP of content — captures all pointer events
         const rect = document.createElementNS(ns, 'rect');
         rect.setAttribute('x', bbox.x);
         rect.setAttribute('y', bbox.y);
         rect.setAttribute('width', bbox.width);
         rect.setAttribute('height', bbox.height);
-        rect.setAttribute('fill', 'rgba(61,138,140,0.10)');
         rect.setAttribute('rx', '2');
-        rect.setAttribute('class', 'measure-hover-overlay');
-        measureEl.insertBefore(rect, measureEl.firstChild);
+        rect.setAttribute('class', 'measure-click-overlay');
+        rect.setAttribute('pointer-events', 'all');
+        measureEl.appendChild(rect);  // on top so it captures clicks
 
-        measureEl.addEventListener('click', () => showCorrectionPanel(barNum, null));
+        rect.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showCorrectionPanel(barNum, null);
+        });
       } catch (_) {}
     }
 
