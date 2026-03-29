@@ -208,21 +208,19 @@ def render_musicxml_svg(xml_path: Path, output_dir: Path) -> list[Path]:
 
 
 def strip_dynamics_from_xml(xml_path: Path, out_path: Path) -> None:
-    """Write a copy of the MusicXML with all dynamic/hairpin directions removed.
-    Audiveris sometimes misreads notes as dynamics; stripping them gives a cleaner
-    SVG preview and avoids spurious MIDI volume changes.
+    """Write a copy of the MusicXML with dynamics, ornaments, and articulations removed.
+    Audiveris frequently hallucinates trills, staccato, accents etc. that aren't in
+    the original score.  Stripping them gives a cleaner SVG preview and audio.
     Handles both plain .xml and compressed .mxl (ZIP) MusicXML files."""
     import xml.etree.ElementTree as ET
     import zipfile as _zipfile
 
     if xml_path.suffix.lower() == ".mxl":
-        # MXL is a ZIP-compressed MusicXML — extract the inner XML first
         with _zipfile.ZipFile(str(xml_path)) as zf:
             xml_names = [n for n in zf.namelist()
                          if n.endswith(".xml") and not n.startswith("META-INF")]
             if not xml_names:
                 raise ValueError(f"No XML entry found inside MXL: {xml_path}")
-            # Prefer root-level files (e.g. "score.xml" rather than nested paths)
             root_level = [n for n in xml_names if "/" not in n]
             xml_name = root_level[0] if root_level else xml_names[0]
             xml_bytes = zf.read(xml_name)
@@ -233,19 +231,17 @@ def strip_dynamics_from_xml(xml_path: Path, out_path: Path) -> None:
     root = tree.getroot()
     ns = root.tag.split("}")[0] + "}" if root.tag.startswith("{") else ""
 
-    # Register the default namespace so ElementTree doesn't mangle it into ns0: prefixes
     if ns:
         ET.register_namespace('', ns.strip('{}'))
 
     dyn_tags = {f"{ns}dynamics", f"{ns}wedge", f"{ns}dashes"}
 
     for measure in root.iter(f"{ns}measure"):
+        # Strip dynamic directions
         to_remove = []
         for direction in list(measure):
             if direction.tag != f"{ns}direction":
                 continue
-            # Check every direction-type child — remove the direction only if
-            # ALL its direction-type children are pure dynamics/hairpin content.
             dir_types = direction.findall(f"{ns}direction-type")
             if not dir_types:
                 continue
@@ -257,6 +253,13 @@ def strip_dynamics_from_xml(xml_path: Path, out_path: Path) -> None:
                 to_remove.append(direction)
         for el in to_remove:
             measure.remove(el)
+
+    # Strip ornaments (trill-mark, turn, mordent, etc.) and articulations
+    # (staccato, accent, tenuto, etc.) from <notations> inside every <note>
+    for notations in root.iter(f"{ns}notations"):
+        for tag in (f"{ns}ornaments", f"{ns}articulations"):
+            for child in list(notations.findall(tag)):
+                notations.remove(child)
 
     tree.write(str(out_path), xml_declaration=True, encoding="UTF-8")
 
@@ -277,10 +280,26 @@ def split_parts(xml_path: Path, output_dir: Path, part_count: str, bpm: int | No
     if not parts:
         raise RuntimeError("No parts found in the MusicXML output.")
 
-    # Remove all dynamic markings from the score
-    for el in score.recurse():
-        if isinstance(el, music21.dynamics.Dynamic):
-            el.activeSite.remove(el)
+    # Remove dynamics, ornaments, and articulations (often hallucinated by Audiveris)
+    for el in list(score.recurse()):
+        if isinstance(el, (music21.dynamics.Dynamic,
+                           music21.dynamics.DynamicWedge)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
+        elif isinstance(el, (music21.expressions.Trill,
+                             music21.expressions.Turn,
+                             music21.expressions.Mordent,
+                             music21.expressions.InvertedMordent,
+                             music21.expressions.Ornament)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
+        elif isinstance(el, (music21.articulations.Staccato,
+                             music21.articulations.Accent,
+                             music21.articulations.Tenuto,
+                             music21.articulations.StrongAccent,
+                             music21.articulations.Articulation)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
 
     # Apply corrections (key, tempo, time signature) if provided
     if corrections_text:
@@ -961,10 +980,24 @@ def _apply_and_save_xml(
         for part in score.parts:
             part.insert(0, music21.tempo.MetronomeMark(number=bpm))
 
-    # Strip dynamics so SVG preview is clean
+    # Strip dynamics, ornaments, and articulations so SVG/audio is clean
     for el in list(score.recurse()):
         if isinstance(el, (music21.dynamics.Dynamic,
                            music21.dynamics.DynamicWedge)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
+        elif isinstance(el, (music21.expressions.Trill,
+                             music21.expressions.Turn,
+                             music21.expressions.Mordent,
+                             music21.expressions.InvertedMordent,
+                             music21.expressions.Ornament)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
+        elif isinstance(el, (music21.articulations.Staccato,
+                             music21.articulations.Accent,
+                             music21.articulations.Tenuto,
+                             music21.articulations.StrongAccent,
+                             music21.articulations.Articulation)):
             if el.activeSite is not None:
                 el.activeSite.remove(el)
 
@@ -1356,10 +1389,24 @@ def _apply_corrections_list_to_xml(
     import music21
     score = music21.converter.parse(str(xml_path))
     apply_corrections(score, corrections)
-    # Strip dynamics for clean SVG preview
+    # Strip dynamics, ornaments, and articulations for clean SVG/audio
     for el in list(score.recurse()):
         if isinstance(el, (music21.dynamics.Dynamic,
                            music21.dynamics.DynamicWedge)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
+        elif isinstance(el, (music21.expressions.Trill,
+                             music21.expressions.Turn,
+                             music21.expressions.Mordent,
+                             music21.expressions.InvertedMordent,
+                             music21.expressions.Ornament)):
+            if el.activeSite is not None:
+                el.activeSite.remove(el)
+        elif isinstance(el, (music21.articulations.Staccato,
+                             music21.articulations.Accent,
+                             music21.articulations.Tenuto,
+                             music21.articulations.StrongAccent,
+                             music21.articulations.Articulation)):
             if el.activeSite is not None:
                 el.activeSite.remove(el)
     out_path = out_path.with_suffix(".xml")
