@@ -1504,13 +1504,47 @@ async def autodetect_score_corrections(
         raise HTTPException(500, detail=f"Unexpected error applying corrections: {exc}")
 
 
-@app.post("/api/correct-bar")
-async def correct_single_bar(
+def _duration_label(dur: float) -> str:
+    """Convert quarter-note duration to a readable abbreviation."""
+    _MAP = {4.0: "whole", 3.0: "d.half", 2.0: "half", 1.5: "d.qtr",
+            1.0: "qtr", 0.75: "d.8th", 0.5: "8th", 0.25: "16th"}
+    return _MAP.get(dur, f"{dur}q")
+
+
+def _correction_summary(c: dict) -> str:
+    bar = c.get("bar", "?")
+    part = c.get("part", "all")
+    ctype = c.get("type", "")
+    val = c.get("value")
+    if ctype == "key":
+        return f"Bar {bar}: key → {val}"
+    if ctype == "tempo":
+        return f"Bar {bar}: tempo → {val} BPM"
+    if ctype == "time_signature":
+        return f"Bar {bar}: time → {val}"
+    if ctype == "delete_notes":
+        return f"Bar {bar}, {part}: → rest"
+    if ctype == "replace_notes" and isinstance(val, list):
+        notes = []
+        for n in val:
+            dur = _duration_label(n.get("duration", 1.0))
+            if n.get("rest"):
+                notes.append(f"rest({dur})")
+            elif n.get("pitches"):
+                notes.append(f"[{'+'.join(n['pitches'])}]({dur})")
+            elif n.get("pitch"):
+                notes.append(f"{n['pitch']}({dur})")
+        return f"Bar {bar}, {part}: {' '.join(notes)}"
+    return f"Bar {bar}, {part}: {ctype} → {val}"
+
+
+@app.post("/api/suggest-bar-correction")
+async def suggest_bar_correction(
     job_id: str = Form(...),
     bar_number: int = Form(...),
-    part_count: str = Form("auto"),
 ):
-    """AI-correct a single bar by comparing it against the original PDF using vision."""
+    """Ask AI to compare a single bar against the original PDF.
+    Returns suggested corrections for user review — does NOT apply them."""
     job_dir = JOBS_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(
@@ -1522,7 +1556,6 @@ async def correct_single_bar(
         raise HTTPException(
             422, detail="Original PDF pages not found for this job. Re-upload to regenerate.")
 
-    # Use corrected XML if it exists (incremental corrections), else Audiveris baseline
     corrected_xml = job_dir / "corrected.xml"
     audiveris_xmls = (
         list((job_dir / "audiveris").rglob("*.xml")) +
@@ -1533,7 +1566,6 @@ async def correct_single_bar(
             422, detail="MusicXML not found for this job. Re-upload to regenerate.")
     base_xml = corrected_xml if corrected_xml.exists() else audiveris_xmls[0]
 
-    # Convert current Verovio SVGs to PNGs for the vision model
     svg_pages = sorted(preview_dir.glob("score-*.svg")) if preview_dir.exists() else []
     vrv_pngs: list[Path | None] = [_render_svg_to_png(p) for p in svg_pages]
 
@@ -1545,7 +1577,46 @@ async def correct_single_bar(
         raise HTTPException(500, detail=f"Unexpected error during bar correction: {exc}")
 
     if not corrections:
-        return {"corrections_count": 0, "message": f"No corrections needed for bar {bar_number}."}
+        return {"corrections_count": 0, "corrections": [],
+                "summary": f"No corrections needed for bar {bar_number}."}
+
+    summary = "\n".join(_correction_summary(c) for c in corrections)
+    return {
+        "corrections_count": len(corrections),
+        "corrections": corrections,
+        "summary": summary,
+    }
+
+
+@app.post("/api/apply-bar-corrections")
+async def apply_bar_corrections(
+    job_id: str = Form(...),
+    corrections_json: str = Form(...),
+    part_count: str = Form("auto"),
+):
+    """Apply previously-suggested corrections (user-approved) to the score."""
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.exists():
+        raise HTTPException(
+            404, detail="Job not found — the server may have restarted. Please re-upload.")
+
+    try:
+        corrections = json.loads(corrections_json)
+        if not isinstance(corrections, list):
+            raise ValueError("Expected a JSON array")
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(422, detail=f"Invalid corrections JSON: {exc}")
+
+    preview_dir = job_dir / "preview"
+    corrected_xml = job_dir / "corrected.xml"
+    audiveris_xmls = (
+        list((job_dir / "audiveris").rglob("*.xml")) +
+        list((job_dir / "audiveris").rglob("*.mxl"))
+    )
+    if not audiveris_xmls:
+        raise HTTPException(
+            422, detail="MusicXML not found for this job. Re-upload to regenerate.")
+    base_xml = corrected_xml if corrected_xml.exists() else audiveris_xmls[0]
 
     try:
         out_xml = job_dir / "corrected.xml"
@@ -1561,7 +1632,7 @@ async def correct_single_bar(
             try:
                 svg_page_paths = render_musicxml_svg(working_xml, preview_dir)
             except Exception as svg_err:
-                print(f"[correct-bar] Corrected XML rendering failed: {svg_err}")
+                print(f"[apply-bar] Corrected XML rendering failed: {svg_err}")
                 import traceback; traceback.print_exc()
                 clean_xml = preview_dir / "score_clean.xml"
                 strip_dynamics_from_xml(audiveris_xmls[0], clean_xml)
@@ -1595,27 +1666,11 @@ async def correct_single_bar(
             zip_path,
         )
 
-        def _correction_summary(c: dict) -> str:
-            bar = c.get("bar", "?")
-            part = c.get("part", "all")
-            ctype = c.get("type", "")
-            val = c.get("value")
-            if ctype == "key":
-                return f"Bar {bar}: key → {val}"
-            if ctype == "tempo":
-                return f"Bar {bar}: tempo → {val} BPM"
-            if ctype == "time_signature":
-                return f"Bar {bar}: time → {val}"
-            if ctype == "delete_notes":
-                return f"Bar {bar}, {part}: deleted"
-            return f"Bar {bar}, {part}: notes replaced"
-
-        corrections_summary = "\n".join(_correction_summary(c) for c in corrections)
-
+        summary = "\n".join(_correction_summary(c) for c in corrections)
         return {
             "job_id": job_id,
             "corrections_count": len(corrections),
-            "corrections_summary": corrections_summary,
+            "corrections_summary": summary,
             "parts": [
                 {
                     "name": p["name"],

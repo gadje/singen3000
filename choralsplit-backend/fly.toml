@@ -4,7 +4,7 @@
 #
 
 app = 'choralsplit'
-primary_region = 'ams'
+primary_region = 'fra'
 
 [build]
   dockerfile = 'Dockerfile'
@@ -22,8 +22,8 @@ primary_region = 'ams'
   [http_service.tls_options]
     alpn = ['h2', 'http/1.1']
   [http_service.http_options]
-    idle_timeout = 1800
-    response_header_timeout = 1800
+    idle_timeout = 900
+    response_header_timeout = 900
 
   [http_service.concurrency]
     type = 'requests'
@@ -31,5 +31,5 @@ primary_region = 'ams'
     soft_limit = 5
 
 [[vm]]
-  size = 'performance-2x'
-  memory = '4gb'
+  size = 'shared-cpu-4x'
+  memory = '2gb'
